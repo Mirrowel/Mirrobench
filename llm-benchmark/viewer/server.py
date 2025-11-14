@@ -510,7 +510,10 @@ async def fix_response_formatting(run_id: str, model_name: str, question_id: str
             else:
                 fixer_model = "anthropic/claude-3-5-sonnet-20241022"
 
-            code_fixer = CodeFixer(client, fixer_model)
+            # Get model options for fixer if configured
+            fixer_options = config.get_model_options(fixer_model) if config else {}
+
+            code_fixer = CodeFixer(client, fixer_model, fixer_options)
 
         # Get original response
         original_response = results_manager.get_response(run_id, model_name, question_id)
@@ -556,6 +559,7 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str):
     try:
         from src.runner import BenchmarkRunner
         from lib.rotator_library.client import RotatingClient
+        from src.config_loader import ConfigLoader
 
         # Get question
         question = question_loader.get_question(question_id)
@@ -566,6 +570,13 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str):
         run = results_manager.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
+
+        # Load config to get model settings
+        try:
+            config = ConfigLoader("config.yaml")
+        except (FileNotFoundError, ValueError):
+            # If config not found, use empty defaults
+            config = None
 
         # Collect API keys
         api_keys = defaultdict(list)
@@ -587,7 +598,11 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str):
         runner = BenchmarkRunner(
             client=client,
             judge_model=judge_model,
-            results_dir=str(results_manager.results_dir)
+            results_dir=str(results_manager.results_dir),
+            model_system_instructions=config.all_model_system_instructions if config else {},
+            model_options=config.all_model_options if config else {},
+            code_formatting_enabled=config.code_formatting_enabled if config else True,
+            code_formatting_instruction=config.code_formatting_instruction if config else None
         )
 
         # Set the current run directory

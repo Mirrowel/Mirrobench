@@ -109,7 +109,8 @@ async def main():
             judge_model=config.judge_model,
             questions_dir=config.questions_dir,
             results_dir=config.results_dir,
-            model_system_instructions=config.model_system_instructions,
+            model_system_instructions=config.all_model_system_instructions,
+            model_options=config.all_model_options,
             code_formatting_enabled=config.code_formatting_enabled,
             code_formatting_instruction=config.code_formatting_instruction
         )
@@ -118,7 +119,8 @@ async def main():
             models=config.models,
             categories=config.categories,
             question_ids=config.question_ids,
-            max_concurrent=config.max_concurrent
+            max_concurrent=config.max_concurrent,
+            provider_concurrency=config.provider_concurrency
         )
 
         print(f"\n✅ Benchmark complete! Run ID: {run_id}")

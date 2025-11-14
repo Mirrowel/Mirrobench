@@ -29,6 +29,7 @@ class BenchmarkRunner:
         questions_dir: str = "questions",
         results_dir: str = "results",
         model_system_instructions: Optional[Dict[str, str]] = None,
+        model_options: Optional[Dict[str, Dict[str, Any]]] = None,
         code_formatting_enabled: bool = True,
         code_formatting_instruction: Optional[str] = None
     ):
@@ -36,6 +37,7 @@ class BenchmarkRunner:
         self.judge_model = judge_model
         self.console = Console()
         self.model_system_instructions = model_system_instructions or {}
+        self.model_options = model_options or {}
         self.code_formatting_enabled = code_formatting_enabled
         self.code_formatting_instruction = code_formatting_instruction
 
@@ -43,7 +45,9 @@ class BenchmarkRunner:
         self.results_manager = ResultsManager(results_dir)
 
         # Initialize evaluators
-        self.llm_judge = LLMJudgeEvaluator(client, judge_model)
+        # Pass model-specific options to judge model if configured
+        judge_options = self.model_options.get(judge_model, {})
+        self.llm_judge = LLMJudgeEvaluator(client, judge_model, judge_options)
         self.tool_validator = ToolCallValidator()
         self.code_executor = CodeExecutor()
 
@@ -52,7 +56,8 @@ class BenchmarkRunner:
         models: List[str],
         categories: Optional[List[str]] = None,
         question_ids: Optional[List[str]] = None,
-        max_concurrent: int = 3
+        max_concurrent: int = 3,
+        provider_concurrency: Optional[Dict[str, int]] = None
     ) -> str:
         """
         Run a complete benchmark.
@@ -61,7 +66,8 @@ class BenchmarkRunner:
             models: List of model names to benchmark
             categories: Optional list of categories to include
             question_ids: Optional list of specific question IDs to run
-            max_concurrent: Maximum number of concurrent requests
+            max_concurrent: Maximum number of concurrent requests (global default)
+            provider_concurrency: Per-provider concurrency limits (optional)
 
         Returns:
             str: The run_id for the completed benchmark
@@ -110,8 +116,15 @@ class BenchmarkRunner:
             self.console.print(f"[bold green]Run ID: {run_id}[/bold green]\n")
             run_ids.append(run_id)
 
+            # Determine concurrency limit for this model's provider
+            provider = self._get_provider_from_model(model)
+            model_concurrency = max_concurrent
+            if provider_concurrency and provider in provider_concurrency:
+                model_concurrency = provider_concurrency[provider]
+                self.console.print(f"[dim]Using provider-specific concurrency: {model_concurrency} for {provider}[/dim]\n")
+
             # Run benchmark for this model
-            await self._run_model_benchmark(model, questions, max_concurrent)
+            await self._run_model_benchmark(model, questions, model_concurrency)
 
             # Calculate and save scores for this run
             self.console.print("\n[yellow]Calculating scores...[/yellow]")
@@ -134,14 +147,34 @@ class BenchmarkRunner:
         # Return the last run_id (or all if needed)
         return run_ids[-1] if run_ids else ""
 
+    def _get_provider_from_model(self, model: str) -> str:
+        """Extract provider name from model string.
+
+        Args:
+            model: Model string like "openai/gpt-4" or "gemini/gemini-2.5-pro"
+
+        Returns:
+            Provider name like "openai" or "gemini"
+        """
+        if '/' in model:
+            return model.split('/')[0]
+        return 'unknown'
+
     async def _run_model_benchmark(
         self,
         model: str,
         questions: List[Question],
         max_concurrent: int
     ):
-        """Run benchmark for a single model."""
-        # Create a semaphore to limit concurrency
+        """Run benchmark for a single model.
+
+        Args:
+            model: Model name to benchmark
+            questions: List of questions to test
+            max_concurrent: Concurrency limit (already provider-specific if configured)
+        """
+        # Create semaphore with the provided concurrency limit
+        # (this is already provider-specific if provider_concurrency was configured)
         semaphore = asyncio.Semaphore(max_concurrent)
 
         with Progress(
@@ -309,13 +342,20 @@ class BenchmarkRunner:
 
             messages.append({"role": "user", "content": question.prompt})
 
-            # Add tools if needed
+            # Build request kwargs
             kwargs = {
                 "model": model,
                 "messages": messages,
                 "stream": True
             }
 
+            # Add model-specific options if configured
+            if model in self.model_options:
+                # Merge additional API body fields for this model
+                model_opts = self.model_options[model]
+                kwargs.update(model_opts)
+
+            # Add tools if needed
             if question.tools:
                 # Convert tools to proper format
                 tools = []

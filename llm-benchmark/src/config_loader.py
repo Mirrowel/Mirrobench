@@ -60,8 +60,28 @@ class ConfigLoader:
 
     @property
     def max_concurrent(self) -> int:
-        """Get max concurrent requests."""
+        """Get max concurrent requests (global default)."""
         return self.config.get('max_concurrent', 3)
+
+    @property
+    def provider_concurrency(self) -> Dict[str, int]:
+        """Get per-provider concurrency limits."""
+        provider_limits = self.config.get('provider_concurrency', {})
+        return provider_limits if provider_limits is not None else {}
+
+    def get_provider_concurrency(self, provider: str) -> int:
+        """Get concurrency limit for a specific provider.
+
+        Falls back to global max_concurrent if provider not specified.
+
+        Args:
+            provider: Provider name (e.g., 'openai', 'anthropic', 'gemini')
+
+        Returns:
+            Concurrency limit for this provider
+        """
+        provider_limits = self.provider_concurrency
+        return provider_limits.get(provider, self.max_concurrent)
 
     @property
     def questions_dir(self) -> str:
@@ -100,12 +120,71 @@ class ConfigLoader:
 
     @property
     def model_system_instructions(self) -> Dict[str, str]:
-        """Get per-model system instructions."""
-        return self.config.get('model_system_instructions', {})
+        """Get per-model system instructions (legacy)."""
+        instructions = self.config.get('model_system_instructions', {})
+        return instructions if instructions is not None else {}
+
+    @property
+    def model_configs(self) -> Dict[str, Dict[str, Any]]:
+        """Get per-model configurations (instructions and options)."""
+        return self.config.get('model_configs', {})
+
+    def get_model_config(self, model_name: str) -> Dict[str, Any]:
+        """Get full config for a specific model."""
+        return self.model_configs.get(model_name, {})
 
     def get_model_system_instruction(self, model_name: str) -> Optional[str]:
-        """Get system instruction for a specific model."""
+        """Get system instruction for a specific model.
+
+        Checks model_configs first, then falls back to model_system_instructions.
+        This ensures backward compatibility while preferring the new unified config.
+        """
+        # Check new model_configs first (takes precedence)
+        model_config = self.get_model_config(model_name)
+        if 'system_instruction' in model_config:
+            return model_config['system_instruction']
+
+        # Fall back to legacy model_system_instructions
         return self.model_system_instructions.get(model_name)
+
+    def get_model_options(self, model_name: str) -> Dict[str, Any]:
+        """Get additional API body fields (options) for a specific model.
+
+        These options will be merged into the API request body when calling this model.
+        Example: {"reasoning_effort": "high"} for OpenAI o1 models.
+        """
+        model_config = self.get_model_config(model_name)
+        return model_config.get('options', {})
+
+    @property
+    def all_model_system_instructions(self) -> Dict[str, str]:
+        """Get all model system instructions (merged from both sources).
+
+        Merges legacy model_system_instructions with model_configs.
+        model_configs takes precedence if both specify an instruction for the same model.
+        """
+        instructions = {}
+
+        # Start with legacy model_system_instructions (handle None case)
+        legacy_instructions = self.model_system_instructions
+        if legacy_instructions:
+            instructions.update(legacy_instructions)
+
+        # Override with model_configs (takes precedence)
+        for model_name, config in self.model_configs.items():
+            if 'system_instruction' in config:
+                instructions[model_name] = config['system_instruction']
+
+        return instructions
+
+    @property
+    def all_model_options(self) -> Dict[str, Dict[str, Any]]:
+        """Get all model options from model_configs."""
+        options = {}
+        for model_name, config in self.model_configs.items():
+            if 'options' in config:
+                options[model_name] = config['options']
+        return options
 
     @property
     def code_formatting_enabled(self) -> bool:

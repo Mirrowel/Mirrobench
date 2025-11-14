@@ -3,7 +3,7 @@ LLM-as-judge evaluator using a powerful model to evaluate responses.
 """
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 from lib.rotator_library.client import RotatingClient
 from src.schemas import Question, ModelResponse, Evaluation
 
@@ -11,9 +11,15 @@ from src.schemas import Question, ModelResponse, Evaluation
 class LLMJudgeEvaluator:
     """Use an LLM to evaluate model responses."""
 
-    def __init__(self, client: RotatingClient, judge_model: str = "anthropic/claude-3-5-sonnet-20241022"):
+    def __init__(
+        self,
+        client: RotatingClient,
+        judge_model: str = "anthropic/claude-3-5-sonnet-20241022",
+        model_options: Optional[Dict[str, Any]] = None
+    ):
         self.client = client
         self.judge_model = judge_model
+        self.model_options = model_options or {}
 
     async def evaluate(self, question: Question, response: ModelResponse) -> Evaluation:
         """
@@ -43,18 +49,25 @@ class LLMJudgeEvaluator:
         eval_prompt = self._build_evaluation_prompt(question, response)
 
         try:
-            # Call the judge model (non-streaming for evaluation)
-            judge_response = await self.client.acompletion(
-                model=self.judge_model,
-                messages=[
+            # Build request kwargs
+            kwargs = {
+                "model": self.judge_model,
+                "messages": [
                     {
                         "role": "user",
                         "content": eval_prompt
                     }
                 ],
-                temperature=0.0,  # Deterministic evaluation
-                stream=False  # Important: disable streaming for evaluation
-            )
+                "temperature": 0.0,  # Deterministic evaluation
+                "stream": False  # Important: disable streaming for evaluation
+            }
+
+            # Add model-specific options if configured for judge model
+            if self.model_options:
+                kwargs.update(self.model_options)
+
+            # Call the judge model (non-streaming for evaluation)
+            judge_response = await self.client.acompletion(**kwargs)
 
             # Extract the response text
             judge_text = None

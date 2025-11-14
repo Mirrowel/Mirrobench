@@ -12,9 +12,15 @@ from src.schemas import Question, ModelResponse
 class CodeFixer:
     """Use LLM to fix code formatting in model responses."""
 
-    def __init__(self, client: RotatingClient, fixer_model: str = "anthropic/claude-3-5-sonnet-20241022"):
+    def __init__(
+        self,
+        client: RotatingClient,
+        fixer_model: str = "anthropic/claude-3-5-sonnet-20241022",
+        model_options: Optional[Dict[str, Any]] = None
+    ):
         self.client = client
         self.fixer_model = fixer_model
+        self.model_options = model_options or {}
 
     async def fix_response(self, question: Question, response: ModelResponse) -> ModelResponse:
         """
@@ -31,17 +37,24 @@ class CodeFixer:
         fix_prompt = self._build_fix_prompt(question, response)
 
         try:
-            # Call the fixer model
-            fixer_response = await self.client.acompletion(
-                model=self.fixer_model,
-                messages=[
+            # Build request kwargs
+            kwargs = {
+                "model": self.fixer_model,
+                "messages": [
                     {
                         "role": "user",
                         "content": fix_prompt
                     }
                 ],
-                temperature=0.0  # Deterministic reformatting
-            )
+                "temperature": 0.0  # Deterministic reformatting
+            }
+
+            # Add model-specific options if configured for fixer model
+            if self.model_options:
+                kwargs.update(self.model_options)
+
+            # Call the fixer model
+            fixer_response = await self.client.acompletion(**kwargs)
 
             # Extract the fixed response text
             if fixer_response and hasattr(fixer_response, 'choices'):
