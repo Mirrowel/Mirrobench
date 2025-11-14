@@ -445,7 +445,12 @@ async def re_evaluate_response(run_id: str, model_name: str, question_id: str):
         if not api_keys:
             raise HTTPException(status_code=500, detail="No API keys configured for evaluation")
 
-        client = RotatingClient(api_keys=dict(api_keys))
+        # Create client with retry settings from config if available
+        client_kwargs = {"api_keys": dict(api_keys)}
+        if config:
+            client_kwargs["max_retries"] = config.max_retries_per_key
+            client_kwargs["global_timeout"] = config.global_timeout
+        client = RotatingClient(**client_kwargs)
 
         # Get judge model from config or use default
         if config and hasattr(config, 'judge_model'):
@@ -509,7 +514,12 @@ async def fix_response_formatting(run_id: str, model_name: str, question_id: str
             if not api_keys:
                 raise HTTPException(status_code=500, detail="No API keys configured for code fixer")
 
-            client = RotatingClient(api_keys=dict(api_keys))
+            # Create client with retry settings from config if available
+            client_kwargs = {"api_keys": dict(api_keys)}
+            if config:
+                client_kwargs["max_retries"] = config.max_retries_per_key
+                client_kwargs["global_timeout"] = config.global_timeout
+            client = RotatingClient(**client_kwargs)
 
             # Use fixer model from request, or config, or default
             if request.fixer_model:
@@ -600,7 +610,12 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str):
         if not api_keys:
             raise HTTPException(status_code=500, detail="No API keys configured")
 
-        client = RotatingClient(api_keys=dict(api_keys))
+        # Create client with retry settings from config if available
+        client_kwargs = {"api_keys": dict(api_keys)}
+        if config:
+            client_kwargs["max_retries"] = config.max_retries_per_key
+            client_kwargs["global_timeout"] = config.global_timeout
+        client = RotatingClient(**client_kwargs)
 
         # Initialize runner with run configuration
         judge_model = run.judge_model or "anthropic/claude-3-5-sonnet-20241022"

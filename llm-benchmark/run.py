@@ -99,8 +99,12 @@ async def main():
         print("")
         return
 
-    # Create client
-    client = RotatingClient(api_keys=dict(api_keys))
+    # Create client with retry settings from config
+    client = RotatingClient(
+        api_keys=dict(api_keys),
+        max_retries=config.max_retries_per_key,
+        global_timeout=config.global_timeout
+    )
 
     try:
         # Create and run benchmark

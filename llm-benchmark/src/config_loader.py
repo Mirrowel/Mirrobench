@@ -200,6 +200,16 @@ class ConfigLoader:
         )
         return self.config.get('code_formatting_instructions', {}).get('instruction', default_instruction)
 
+    @property
+    def max_retries_per_key(self) -> int:
+        """Get maximum retry attempts per API key."""
+        return self.config.get('retry_settings', {}).get('max_retries_per_key', 2)
+
+    @property
+    def global_timeout(self) -> int:
+        """Get global timeout for API requests (seconds)."""
+        return self.config.get('retry_settings', {}).get('global_timeout', 45)
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value."""
         return self.config.get(key, default)
