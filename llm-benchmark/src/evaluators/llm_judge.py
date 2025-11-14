@@ -182,7 +182,7 @@ REASONING: [Your explanation]
 
 **Note:** You can think through your evaluation first, but you MUST end with the exact SCORE/PASSED/REASONING format above.
 
-Be objective, critical, and fair in your evaluation. Reserve high scores for truly excellent work.
+Be objective, critical, and fair in your evaluation. Reserve high scores for truly excellent work."""
 
         return prompt
 

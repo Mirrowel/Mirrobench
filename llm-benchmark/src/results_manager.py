@@ -62,8 +62,14 @@ class ResultsManager:
             with open(metadata_path, 'w', encoding='utf-8') as f:
                 json.dump(self.current_run.model_dump(), f, indent=2)
 
-    def save_response(self, response: ModelResponse):
-        """Save a model response."""
+    def save_response(self, response: ModelResponse, version: Optional[str] = None):
+        """
+        Save a model response with versioning support.
+
+        Args:
+            response: The ModelResponse to save
+            version: Optional version identifier. If None, uses timestamp
+        """
         if not self.current_run_dir:
             raise RuntimeError("No active run. Call create_run() first.")
 
@@ -71,10 +77,27 @@ class ResultsManager:
         model_dir = self.current_run_dir / "responses" / self._sanitize_name(response.model_name)
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save response
-        response_path = model_dir / f"{response.question_id}.json"
+        # Create question directory for versioned responses
+        question_dir = model_dir / response.question_id
+        question_dir.mkdir(exist_ok=True)
+
+        # Generate version if not provided
+        if version is None:
+            version = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        # Save versioned response
+        response_path = question_dir / f"v{version}.json"
+        response_data = response.model_dump()
+        response_data['version'] = version
+        response_data['created_at'] = datetime.now().isoformat()
+
         with open(response_path, 'w', encoding='utf-8') as f:
-            json.dump(response.model_dump(), f, indent=2, ensure_ascii=False)
+            json.dump(response_data, f, indent=2, ensure_ascii=False)
+
+        # Update latest.json pointer
+        latest_path = question_dir / "latest.json"
+        with open(latest_path, 'w', encoding='utf-8') as f:
+            json.dump({'version': version, 'file': f"v{version}.json"}, f, indent=2)
 
     def save_evaluation(self, evaluation: Evaluation):
         """Save an evaluation result. Supports multiple evaluation types per question."""
@@ -208,22 +231,49 @@ class ResultsManager:
         runs.sort(key=lambda x: x.timestamp, reverse=True)
         return runs
 
-    def get_response(self, run_id: str, model_name: str, question_id: str, use_fixed: bool = False) -> Optional[ModelResponse]:
+    def get_response(self, run_id: str, model_name: str, question_id: str, use_fixed: bool = False, version: Optional[str] = None) -> Optional[ModelResponse]:
         """
-        Get a specific model response.
+        Get a specific model response with version support.
 
         Args:
             run_id: The benchmark run ID
             model_name: The model name
             question_id: The question ID
-            use_fixed: If True, try to load fixed version first
+            use_fixed: If True, try to load fixed version first (legacy)
+            version: Specific version to load. If None, loads latest.
 
         Returns:
             ModelResponse or None
         """
         base_path = self.results_dir / run_id / "responses" / self._sanitize_name(model_name)
+        question_dir = base_path / question_id
 
-        # Try fixed version first if requested
+        # Check if question directory exists (new versioned structure)
+        if question_dir.exists() and question_dir.is_dir():
+            if version:
+                # Load specific version
+                version_path = question_dir / f"v{version}.json"
+                if not version_path.exists():
+                    return None
+            else:
+                # Load latest version
+                latest_path = question_dir / "latest.json"
+                if latest_path.exists():
+                    with open(latest_path, 'r', encoding='utf-8') as f:
+                        latest_info = json.load(f)
+                        version_path = question_dir / latest_info['file']
+                else:
+                    # If no latest.json, find the most recent version
+                    version_files = sorted(question_dir.glob("v*.json"), reverse=True)
+                    if not version_files:
+                        return None
+                    version_path = version_files[0]
+
+            with open(version_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return ModelResponse(**data)
+
+        # Legacy: Try fixed version first if requested
         if use_fixed:
             fixed_path = base_path / f"{question_id}_fixed.json"
             if fixed_path.exists():
@@ -231,7 +281,7 @@ class ResultsManager:
                     data = json.load(f)
                     return ModelResponse(**data)
 
-        # Fall back to original
+        # Legacy: Fall back to original flat structure
         response_path = base_path / f"{question_id}.json"
         if not response_path.exists():
             return None
@@ -502,6 +552,55 @@ class ResultsManager:
         )
 
         return sorted_leaderboard
+
+    def list_response_versions(self, run_id: str, model_name: str, question_id: str) -> List[Dict]:
+        """
+        List all versions of a response for a specific question.
+
+        Returns list of version info dicts with keys: version, created_at, is_latest
+        """
+        base_path = self.results_dir / run_id / "responses" / self._sanitize_name(model_name)
+        question_dir = base_path / question_id
+
+        if not question_dir.exists() or not question_dir.is_dir():
+            # Legacy structure - check if single file exists
+            response_path = base_path / f"{question_id}.json"
+            if response_path.exists():
+                # Return single version
+                return [{
+                    'version': 'legacy',
+                    'created_at': datetime.fromtimestamp(response_path.stat().st_mtime).isoformat(),
+                    'is_latest': True
+                }]
+            return []
+
+        # Get latest version
+        latest_version = None
+        latest_path = question_dir / "latest.json"
+        if latest_path.exists():
+            with open(latest_path, 'r', encoding='utf-8') as f:
+                latest_info = json.load(f)
+                latest_version = latest_info.get('version')
+
+        # Find all version files
+        versions = []
+        for version_file in sorted(question_dir.glob("v*.json"), reverse=True):
+            if version_file.name == 'latest.json':
+                continue
+
+            with open(version_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                version_id = data.get('version', version_file.stem[1:])  # Remove 'v' prefix
+                created_at = data.get('created_at', datetime.fromtimestamp(version_file.stat().st_mtime).isoformat())
+
+                versions.append({
+                    'version': version_id,
+                    'created_at': created_at,
+                    'is_latest': version_id == latest_version,
+                    'file': version_file.name
+                })
+
+        return versions
 
     @staticmethod
     def _sanitize_name(name: str) -> str:
