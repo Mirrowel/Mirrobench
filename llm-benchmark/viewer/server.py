@@ -258,15 +258,24 @@ async def get_run_bulk_data(run_id: str, model_name: str):
 
         responses_dir = results_manager.results_dir / run_id / "responses" / results_manager._sanitize_name(model_name)
         if responses_dir.exists():
+            # Collect question IDs from both versioned (subdirectories) and legacy (flat) structures
+            question_ids = set()
+
+            # Check for versioned structure (subdirectories with version files)
+            for question_dir in responses_dir.iterdir():
+                if question_dir.is_dir():
+                    # This is a question directory in versioned structure
+                    question_ids.add(question_dir.name)
+
+            # Check for legacy flat structure (JSON files directly in model dir)
             for response_file in responses_dir.glob("*.json"):
-                question_id = response_file.stem.replace('_fixed', '')
+                if '_fixed' not in response_file.stem:
+                    question_ids.add(response_file.stem)
 
-                # Skip fixed versions for now
-                if '_fixed' in response_file.stem:
-                    continue
-
+            # Load responses and evaluations for each question
+            for question_id in question_ids:
                 try:
-                    # Get response
+                    # Get response (handles both versioned and legacy structures)
                     response = results_manager.get_response(run_id, model_name, question_id)
                     if response:
                         responses[question_id] = response.model_dump()

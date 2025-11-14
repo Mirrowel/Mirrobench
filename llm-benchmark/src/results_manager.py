@@ -139,11 +139,53 @@ class ResultsManager:
                 metrics = []
                 model_response_dir = responses_dir / model_name
                 if model_response_dir.exists():
+                    # Handle both versioned (subdirectories) and legacy (flat) structures
+                    question_ids = set()
+
+                    # Check for versioned structure
+                    for question_dir in model_response_dir.iterdir():
+                        if question_dir.is_dir():
+                            question_ids.add(question_dir.name)
+
+                    # Check for legacy flat structure
                     for response_file in model_response_dir.glob("*.json"):
-                        with open(response_file, 'r', encoding='utf-8') as f:
-                            response_data = json.load(f)
-                            if response_data.get('metrics'):
-                                metrics.append(response_data['metrics'])
+                        if '_fixed' not in response_file.stem:
+                            question_ids.add(response_file.stem)
+
+                    # Load metrics from each response
+                    for question_id in question_ids:
+                        # Get response (uses get_response which handles both structures)
+                        try:
+                            response_path = None
+
+                            # Try versioned structure first
+                            question_dir = model_response_dir / question_id
+                            if question_dir.exists() and question_dir.is_dir():
+                                latest_path = question_dir / "latest.json"
+                                if latest_path.exists():
+                                    with open(latest_path, 'r', encoding='utf-8') as f:
+                                        latest_info = json.load(f)
+                                        response_path = question_dir / latest_info['file']
+                                else:
+                                    # Find most recent version
+                                    version_files = sorted(question_dir.glob("v*.json"), reverse=True)
+                                    if version_files:
+                                        response_path = version_files[0]
+
+                            # Fall back to legacy flat structure
+                            if not response_path:
+                                legacy_path = model_response_dir / f"{question_id}.json"
+                                if legacy_path.exists():
+                                    response_path = legacy_path
+
+                            if response_path:
+                                with open(response_path, 'r', encoding='utf-8') as f:
+                                    response_data = json.load(f)
+                                    if response_data.get('metrics'):
+                                        metrics.append(response_data['metrics'])
+                        except Exception as e:
+                            # Skip responses that can't be loaded
+                            continue
 
                 # Calculate scores
                 if evaluations:
