@@ -7,6 +7,7 @@ Usage:
 """
 import os
 import json
+import shutil
 from pathlib import Path
 from typing import Optional, List, Dict
 from collections import defaultdict
@@ -630,6 +631,94 @@ async def clear_leaderboard_preference(model_name: str):
         return {"success": True, "model_name": model_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ExecuteRequest(BaseModel):
+    """Request body for executing code."""
+    code: str
+    language: str = "python"
+    timeout: int = 10
+
+
+@app.post("/api/execute")
+async def execute_code(request: ExecuteRequest):
+    """Execute code and return output."""
+    import subprocess
+    import tempfile
+    import os
+
+    try:
+        # Create temp directory for execution
+        temp_dir = tempfile.mkdtemp(prefix='viewer_exec_')
+
+        try:
+            if request.language == "python":
+                # Write code to temp file
+                temp_file = os.path.join(temp_dir, 'script.py')
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(request.code)
+
+                # Execute
+                result = subprocess.run(
+                    ['python', temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout,
+                    encoding='utf-8',
+                    errors='replace',
+                    cwd=temp_dir
+                )
+
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode
+                }
+            elif request.language == "javascript":
+                # Write code to temp file
+                temp_file = os.path.join(temp_dir, 'script.js')
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(request.code)
+
+                # Execute with node
+                result = subprocess.run(
+                    ['node', temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout,
+                    encoding='utf-8',
+                    errors='replace',
+                    cwd=temp_dir
+                )
+
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode
+                }
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported language: {request.language}")
+
+        finally:
+            # Cleanup
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"Execution timed out after {request.timeout} seconds",
+            "returncode": -1
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "returncode": -1
+        }
 
 
 # Mount static files
