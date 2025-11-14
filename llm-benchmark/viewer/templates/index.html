@@ -630,6 +630,19 @@
             background: var(--bg-card);
         }
 
+        /* Progress animation */
+        @keyframes progress {
+            0% {
+                transform: translateX(-100%);
+            }
+            50% {
+                transform: translateX(100%);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .evaluations-grid {
@@ -665,8 +678,14 @@
         <!-- Navigation -->
         <div class="nav-bar">
             <div class="nav-content">
-                <div class="breadcrumb" id="breadcrumb">📊 Global Leaderboard</div>
-                <button class="btn btn-primary" onclick="loadUnifiedLeaderboard()">🔄 Refresh</button>
+                <div style="display: flex; align-items: center; gap: 1rem; flex: 1;">
+                    <button class="btn" id="backBtn" onclick="goBack()" style="display: none;">← Back</button>
+                    <button class="btn" id="homeBtn" onclick="loadUnifiedLeaderboard()" style="display: none;">🏠 Home</button>
+                    <div class="breadcrumb" id="breadcrumb">📊 Global Leaderboard</div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-primary" onclick="refreshCurrentView()">🔄 Refresh</button>
+                </div>
             </div>
         </div>
 
@@ -684,22 +703,212 @@
         let currentModel = null;
         let currentModelRuns = [];
 
+        // Navigation state
+        let navigationHistory = []; // Stack of {view: string, data: object}
+        let currentView = {view: 'home', data: {}};
+
+        // Client-side cache for bulk data
+        let dataCache = {
+            runs: {}, // run_id -> bulk data
+            currentRunId: null,
+            currentModelName: null
+        };
+
+        // Async operations tracker
+        let activeOperations = new Map(); // operation_id -> {type, status, startTime}
+        let operationCounter = 0;
+
+        // Navigation functions
+        function updateNavigation() {
+            const backBtn = document.getElementById('backBtn');
+            const homeBtn = document.getElementById('homeBtn');
+
+            // Show back button if we have history
+            if (navigationHistory.length > 0) {
+                backBtn.style.display = 'block';
+            } else {
+                backBtn.style.display = 'none';
+            }
+
+            // Show home button if we're not on home
+            if (currentView.view !== 'home') {
+                homeBtn.style.display = 'block';
+            } else {
+                homeBtn.style.display = 'none';
+            }
+        }
+
+        function pushNavigation(view, data) {
+            // Push current view to history
+            navigationHistory.push({...currentView});
+            currentView = {view, data};
+            updateNavigation();
+        }
+
+        function goBack() {
+            if (navigationHistory.length === 0) return;
+
+            // Pop from history
+            const previousView = navigationHistory.pop();
+            currentView = previousView;
+            updateNavigation();
+
+            // Navigate to previous view
+            if (previousView.view === 'home') {
+                loadUnifiedLeaderboard();
+            } else if (previousView.view === 'model-details') {
+                viewModelDetailsForRun(previousView.data.modelName, previousView.data.runId);
+            } else if (previousView.view === 'response') {
+                viewResponse(previousView.data.modelName, previousView.data.questionId, previousView.data.runId);
+            }
+        }
+
+        function refreshCurrentView() {
+            // Refresh whatever view we're currently on
+            if (currentView.view === 'home') {
+                loadUnifiedLeaderboard();
+            } else if (currentView.view === 'model-details') {
+                // Force refresh by clearing cache
+                const cacheKey = `${currentView.data.runId}_${currentView.data.modelName}`;
+                delete dataCache.runs[cacheKey];
+                viewModelDetailsForRun(currentView.data.modelName, currentView.data.runId);
+            } else if (currentView.view === 'response') {
+                // Force refresh by clearing cache
+                const cacheKey = `${currentView.data.runId}_${currentView.data.modelName}`;
+                delete dataCache.runs[cacheKey];
+                viewResponse(currentView.data.modelName, currentView.data.questionId, currentView.data.runId);
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             await loadUnifiedLeaderboard();
         });
+
+        // Async operations and notifications
+        function startOperation(type, description) {
+            const opId = ++operationCounter;
+            activeOperations.set(opId, {
+                type,
+                description,
+                status: 'running',
+                startTime: Date.now()
+            });
+            updateOperationsDisplay();
+            return opId;
+        }
+
+        function completeOperation(opId, success = true, message = null) {
+            const op = activeOperations.get(opId);
+            if (op) {
+                op.status = success ? 'success' : 'error';
+                op.endTime = Date.now();
+                op.message = message;
+                updateOperationsDisplay();
+                // Remove after 3 seconds
+                setTimeout(() => {
+                    activeOperations.delete(opId);
+                    updateOperationsDisplay();
+                }, 3000);
+            }
+        }
+
+        function updateOperationsDisplay() {
+            let existingContainer = document.getElementById('operations-container');
+            if (!existingContainer) {
+                existingContainer = document.createElement('div');
+                existingContainer.id = 'operations-container';
+                existingContainer.style.cssText = 'position: fixed; top: 80px; right: 20px; z-index: 1000; max-width: 400px;';
+                document.body.appendChild(existingContainer);
+            }
+
+            let html = '';
+            for (const [opId, op] of activeOperations.entries()) {
+                const duration = op.endTime ? (op.endTime - op.startTime) / 1000 : (Date.now() - op.startTime) / 1000;
+                const statusColor = op.status === 'running' ? 'var(--info)' : op.status === 'success' ? 'var(--success)' : 'var(--danger)';
+                const statusIcon = op.status === 'running' ? '⏳' : op.status === 'success' ? '✓' : '✗';
+
+                html += `<div style="background: var(--bg-secondary); border: 1px solid ${statusColor}; border-left: 4px solid ${statusColor}; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">`;
+                html += `<div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">`;
+                html += `<span style="font-size: 1.2rem;">${statusIcon}</span>`;
+                html += `<strong style="flex: 1;">${escapeHtml(op.description)}</strong>`;
+                html += `<span style="color: var(--text-dim); font-size: 0.875rem;">${duration.toFixed(1)}s</span>`;
+                html += `</div>`;
+                if (op.message) {
+                    html += `<div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">${escapeHtml(op.message)}</div>`;
+                }
+                if (op.status === 'running') {
+                    html += `<div style="width: 100%; height: 3px; background: var(--bg-primary); border-radius: 2px; margin-top: 0.5rem; overflow: hidden;">`;
+                    html += `<div style="width: 100%; height: 100%; background: ${statusColor}; animation: progress 2s ease-in-out infinite;"></div>`;
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+
+            existingContainer.innerHTML = html;
+        }
+
+        // Load bulk data for a run
+        async function loadBulkData(runId, modelName, forceRefresh = false) {
+            const cacheKey = `${runId}_${modelName}`;
+
+            // Return cached data if available
+            if (!forceRefresh && dataCache.runs[cacheKey]) {
+                console.log('Using cached data for', cacheKey);
+                return dataCache.runs[cacheKey];
+            }
+
+            const opId = startOperation('load', `Loading data for ${modelName.split('/').pop()}`);
+
+            try {
+                const response = await fetch(`/api/runs/${runId}/bulk-data?model_name=${encodeURIComponent(modelName)}`);
+                if (!response.ok) {
+                    throw new Error('Failed to load bulk data');
+                }
+
+                const data = await response.json();
+                dataCache.runs[cacheKey] = data;
+                dataCache.currentRunId = runId;
+                dataCache.currentModelName = modelName;
+
+                completeOperation(opId, true, `Loaded ${Object.keys(data.responses).length} responses`);
+                return data;
+            } catch (error) {
+                completeOperation(opId, false, error.message);
+                throw error;
+            }
+        }
 
         // Load global leaderboard
         async function loadUnifiedLeaderboard() {
             showLoading();
             try {
                 const response = await fetch('/api/leaderboard/unified');
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                }
                 const data = await response.json();
-                leaderboardData = data.leaderboard;
-                displayUnifiedLeaderboard(data.leaderboard);
+                leaderboardData = data.leaderboard || {};
+                displayUnifiedLeaderboard(data.leaderboard || {});
                 document.getElementById('breadcrumb').textContent = '📊 Global Leaderboard';
+
+                // Update navigation state (home view, clear history)
+                navigationHistory = [];
+                currentView = {view: 'home', data: {}};
+                updateNavigation();
             } catch (error) {
-                showError('Failed to load unified leaderboard: ' + error.message);
+                console.error('Error loading leaderboard:', error);
+                // Show error but also show empty state
+                displayUnifiedLeaderboard({});
+                // Optionally show error banner
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.innerHTML = '<div style="background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 8px; padding: 1rem; margin: 1rem 0;"><strong>⚠️ Error:</strong> ' + escapeHtml(error.message) + '</div>';
+                errorDiv.style.display = 'block';
+
+                // Still update navigation
+                navigationHistory = [];
+                currentView = {view: 'home', data: {}};
+                updateNavigation();
             }
         }
 
@@ -712,6 +921,17 @@
             let html = '<div class="leaderboard-header">';
             html += '<h2>🏆 Global Leaderboard</h2>';
             html += '</div>';
+
+            // Check if leaderboard is empty
+            if (!leaderboard || Object.keys(leaderboard).length === 0) {
+                html += '<div class="info-banner" style="background: var(--warning-bg); border-color: var(--warning); margin: 2rem 0;">';
+                html += '<strong>📊 No Results Yet</strong><br>';
+                html += 'No benchmark runs have been completed yet. Run a benchmark to see results here.<br><br>';
+                html += '<code>python -m src.cli --models "MODEL_NAME" --categories "CATEGORY"</code>';
+                html += '</div>';
+                content.innerHTML = html;
+                return;
+            }
 
             html += '<div class="info-banner">';
             html += '<strong>ℹ️ Note:</strong> Showing the latest run for each model. ';
@@ -786,15 +1006,12 @@
             }
         }
 
-        // View model details for a specific run
+        // View model details for a specific run (using cached bulk data)
         async function viewModelDetailsForRun(modelName, runId) {
             showLoading();
             try {
-                const response = await fetch(`/api/runs/${runId}`);
-                const runData = await response.json();
-
-                const questionsResponse = await fetch(`/api/questions`);
-                const questionsData = await questionsResponse.json();
+                // Load bulk data (uses cache if available)
+                const bulkData = await loadBulkData(runId, modelName);
 
                 const prefsResponse = await fetch('/api/leaderboard/preferences');
                 const prefsData = await prefsResponse.json();
@@ -802,13 +1019,10 @@
 
                 let html = '';
 
-                // Header with back button
+                // Header
                 html += '<div class="response-header">';
                 html += '<div class="response-title">';
                 html += '<h2>📋 ' + escapeHtml(modelName) + ' - Detailed Results</h2>';
-                html += '</div>';
-                html += '<div class="response-actions">';
-                html += '<button class="btn" onclick="loadUnifiedLeaderboard()">← Back to Leaderboard</button>';
                 html += '</div>';
                 html += '</div>';
 
@@ -835,37 +1049,25 @@
                 html += '</div>';
                 html += '</div>';
 
-                // Get responses
-                const questionPromises = questionsData.questions
-                    .filter(q => runData.categories.includes(q.category))
-                    .slice(0, 30)
-                    .map(async q => {
-                        try {
-                            const resp = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${q.id}`);
-                            if (resp.ok) {
-                                const data = await resp.json();
-                                return { question: q, ...data };
-                            }
-                        } catch (e) {
-                            return null;
-                        }
-                    });
+                // Display responses from cached data
+                for (const [questionId, responseData] of Object.entries(bulkData.responses)) {
+                    const question = bulkData.questions[questionId];
+                    if (!question) continue;
 
-                const responses = (await Promise.all(questionPromises)).filter(r => r !== null);
+                    // Get primary evaluation (prefer llm_judge)
+                    const evaluations = bulkData.evaluations[questionId] || {};
+                    const evaluation = evaluations.llm_judge || evaluations.code_execution || Object.values(evaluations)[0];
 
-                // Display responses
-                for (const item of responses) {
-                    const evaluation = item.evaluation;
                     const scoreClass = evaluation && evaluation.passed ? 'badge-success' : 'badge-danger';
                     const score = evaluation ? evaluation.score.toFixed(1) : 'N/A';
 
-                    html += '<div class="card" style="cursor: pointer;" onclick="viewResponse(\'' + escapeHtml(modelName) + '\', \'' + item.question.id + '\', \'' + runId + '\')">';
+                    html += '<div class="card" style="cursor: pointer;" onclick="viewResponseCached(\'' + escapeHtml(modelName) + '\', \'' + questionId + '\', \'' + runId + '\')">';
                     html += '<div class="card-header">';
-                    html += '<div class="card-title">' + escapeHtml(item.question.id) + '</div>';
+                    html += '<div class="card-title">' + escapeHtml(questionId) + '</div>';
                     html += '<span class="badge ' + scoreClass + '">Score: ' + score + '/100</span>';
                     html += '</div>';
                     html += '<div class="card-content">';
-                    html += '<p>' + escapeHtml(item.question.prompt) + '</p>';
+                    html += '<p>' + escapeHtml(question.prompt) + '</p>';
                     html += '</div>';
                     html += '</div>';
                 }
@@ -875,20 +1077,61 @@
                 content.innerHTML = html;
                 content.style.display = 'block';
                 document.getElementById('loadingMessage').style.display = 'none';
+
+                // Update navigation state
+                pushNavigation('model-details', {modelName, runId});
             } catch (error) {
                 showError('Failed to load model details: ' + error.message);
             }
+        }
+
+        // Refresh current run data
+        async function refreshCurrentRunData() {
+            if (dataCache.currentRunId && dataCache.currentModelName) {
+                await loadBulkData(dataCache.currentRunId, dataCache.currentModelName, true);
+                await viewModelDetailsForRun(dataCache.currentModelName, dataCache.currentRunId);
+            }
+        }
+
+        // View response using cached data (instant, no loading)
+        async function viewResponseCached(modelName, questionId, runId, useFixed = false) {
+            // Just call viewResponse - it will use cache if available
+            await viewResponse(modelName, questionId, runId, useFixed);
         }
 
         // View specific response with evaluations
         async function viewResponse(modelName, questionId, runId, useFixed = false) {
             if (!runId) return;
 
-            showLoading();
-            try {
-                const url = `/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}?use_fixed=${useFixed}`;
-                const response = await fetch(url);
-                const data = await response.json();
+            // Try to use cached data first
+            const cacheKey = `${runId}_${modelName}`;
+            const cached = dataCache.runs[cacheKey];
+            let data;
+
+            if (cached && cached.questions[questionId] && cached.responses[questionId]) {
+                // Use cached data - instant display
+                data = {
+                    question: cached.questions[questionId],
+                    response: cached.responses[questionId],
+                    evaluations: cached.evaluations[questionId] || {},
+                    has_fixed_version: cached.responses[questionId]?.has_fixed_version || false,
+                    is_fixed_version: useFixed,
+                    artifact: null,
+                    artifact_type: null,
+                    artifact_metadata: null
+                };
+            } else {
+                // Fetch from API
+                showLoading();
+                try {
+                    const url = `/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}?use_fixed=${useFixed}`;
+                    const response = await fetch(url);
+                    data = await response.json();
+                } catch (error) {
+                    showError('Failed to load response: ' + error.message);
+                    return;
+                }
+            }
 
                 let html = '';
 
@@ -899,8 +1142,11 @@
                 html += '<p style="color: var(--text-secondary); margin-top: 0.5rem;"><strong>' + escapeHtml(data.question.id) + '</strong></p>';
                 html += '</div>';
                 html += '<div class="response-actions">';
-                html += '<button class="btn" onclick="viewModelDetailsForRun(\'' + escapeHtml(modelName) + '\', \'' + runId + '\')">← Back</button>';
                 html += '<button class="btn btn-primary" onclick="reEvaluateResponse(\'' + escapeHtml(modelName) + '\', \'' + questionId + '\', \'' + runId + '\')">🔄 Re-Evaluate</button>';
+                // Add Fix Response button for code-based questions
+                if (data.question.evaluation_type === 'code_execution' || data.question.evaluation_type === 'code_execution_multi_file') {
+                    html += '<button class="btn" onclick="fixResponse(\'' + escapeHtml(modelName) + '\', \'' + questionId + '\', \'' + runId + '\')">🔧 Fix Response</button>';
+                }
                 html += '</div>';
                 html += '</div>';
 
@@ -980,6 +1226,9 @@
                 content.innerHTML = html;
                 content.style.display = 'block';
                 document.getElementById('loadingMessage').style.display = 'none';
+
+                // Update navigation state
+                pushNavigation('response', {modelName, questionId, runId});
             } catch (error) {
                 showError('Failed to load response: ' + error.message);
             }
@@ -1065,28 +1314,105 @@
         }
 
         // Re-evaluate response
+        // Re-evaluate response (async, non-blocking)
         async function reEvaluateResponse(modelName, questionId, runId) {
-            if (!confirm('This will re-run the evaluation for this response. Continue?')) {
-                return;
-            }
+            const opId = startOperation('re-evaluate', `Re-evaluating ${questionId}`);
 
-            showLoading();
-            try {
-                const response = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}/re-evaluate`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
-                });
+            // Run in background
+            (async () => {
+                try {
+                    const response = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}/re-evaluate`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'}
+                    });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Re-evaluation failed');
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Re-evaluation failed');
+                    }
+
+                    const data = await response.json();
+
+                    // Refresh cache for this run
+                    const cacheKey = `${runId}_${modelName}`;
+                    if (dataCache.runs[cacheKey]) {
+                        // Update cache with new evaluations
+                        const evalResp = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}`);
+                        if (evalResp.ok) {
+                            const evalData = await evalResp.json();
+                            dataCache.runs[cacheKey].evaluations[questionId] = evalData.evaluations;
+                        }
+                    }
+
+                    completeOperation(opId, true, data.message);
+
+                    // Refresh the view if we're currently looking at this response
+                    const currentView = document.getElementById('mainContent').innerHTML;
+                    if (currentView.includes(questionId)) {
+                        await viewResponseCached(modelName, questionId, runId);
+                    }
+                } catch (error) {
+                    completeOperation(opId, false, error.message);
                 }
+            })();
 
-                const data = await response.json();
-                await viewResponse(modelName, questionId, runId);
-                alert('✓ ' + data.message);
-            } catch (error) {
-                showError('Failed to re-evaluate: ' + error.message);
+            // Don't block - return immediately
+            return Promise.resolve();
+        }
+
+        // Fix response formatting using LLM
+        async function fixResponse(modelName, questionId, runId) {
+            const opId = startOperation('fix-response', `Fixing response for ${questionId}`);
+
+            // Run in background
+            (async () => {
+                try {
+                    const response = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}/fix`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({}) // Can optionally specify fixer_model
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Fix failed');
+                    }
+
+                    const data = await response.json();
+
+                    // Refresh cache for this run
+                    const cacheKey = `${runId}_${modelName}`;
+                    if (dataCache.runs[cacheKey]) {
+                        // Update cache with fixed response
+                        const respResp = await fetch(`/api/runs/${runId}/models/${encodeURIComponent(modelName)}/questions/${questionId}`);
+                        if (respResp.ok) {
+                            const respData = await respResp.json();
+                            dataCache.runs[cacheKey].responses[questionId] = respData.response;
+                        }
+                    }
+
+                    completeOperation(opId, true, data.message || 'Response fixed successfully');
+
+                    // Refresh the view if we're currently looking at this response
+                    const currentView = document.getElementById('mainContent').innerHTML;
+                    if (currentView.includes(questionId)) {
+                        await viewResponseCached(modelName, questionId, runId);
+                    }
+                } catch (error) {
+                    completeOperation(opId, false, error.message);
+                }
+            })();
+
+            // Don't block - return immediately
+            return Promise.resolve();
+        }
+
+        // Bulk re-evaluate multiple responses
+        async function bulkReEvaluate(modelName, runId, questionIds) {
+            for (const questionId of questionIds) {
+                await reEvaluateResponse(modelName, questionId, runId);
+                // Small delay between requests
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
 

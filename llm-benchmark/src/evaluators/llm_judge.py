@@ -152,9 +152,28 @@ class LLMJudgeEvaluator:
 
 **Your Task:**
 Evaluate the response and provide:
-1. A score from 0-100 (where 0 is completely wrong and 100 is perfect)
+1. A score from 0-100 (where 0 is completely wrong and 100 is perfect and beautiful)
 2. Whether the response passes (score >= 70)
 3. Brief reasoning for your score
+
+**Scoring Guidelines - BE HARSH BUT FAIR:**
+- **100**: ONLY for responses that are PERFECT, BEAUTIFUL, and go above and beyond expectations. Flawless execution, excellent code quality, comprehensive documentation, exceptional user experience.
+- **90-99**: Excellent responses with minor imperfections or missing edge cases.
+- **80-89**: Good responses that work correctly but lack polish, optimization, or best practices.
+- **70-79**: Adequate responses that meet basic requirements but have notable issues or inefficiencies.
+- **60-69**: Responses that partially work but have significant issues or incomplete functionality.
+- **40-59**: Poor responses with major errors or missing key functionality.
+- **20-39**: Severely flawed responses with fundamental misunderstandings.
+- **0-19**: Completely wrong or non-functional responses.
+
+**Evaluation Standards:**
+- Scrutinize code quality, error handling, edge cases, and best practices
+- Expect proper documentation and clear structure
+- Demand efficiency and optimization
+- Look for security vulnerabilities or bad practices
+- Consider user experience and completeness
+- Be critical of shortcuts, hacks, or incomplete solutions
+- A "working" solution is NOT automatically a high score - quality matters
 
 **CRITICAL: You MUST format your final assessment EXACTLY as follows:**
 SCORE: [number from 0-100]
@@ -163,7 +182,7 @@ REASONING: [Your explanation]
 
 **Note:** You can think through your evaluation first, but you MUST end with the exact SCORE/PASSED/REASONING format above.
 
-Be objective and fair in your evaluation."""
+Be objective, critical, and fair in your evaluation. Reserve high scores for truly excellent work.
 
         return prompt
 

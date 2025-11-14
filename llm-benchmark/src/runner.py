@@ -192,11 +192,76 @@ class BenchmarkRunner:
         progress: Progress,
         task_id: int
     ) -> ModelResponse:
-        """Generate a response with concurrency control."""
+        """Generate a response with concurrency control and retry logic."""
         async with semaphore:
-            response = await self._generate_response(model, question)
+            response = await self._generate_response_with_retry(model, question)
             progress.update(task_id, advance=1)
             return response
+
+    async def _generate_response_with_retry(
+        self,
+        model: str,
+        question: Question,
+        max_retries: int = 3
+    ) -> ModelResponse:
+        """Generate a response with retry logic for failures."""
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                response = await self._generate_response(model, question)
+
+                # Check if response has an error
+                if response.error:
+                    last_error = response.error
+                    self.console.print(f"[yellow]⚠️  Attempt {attempt + 1}/{max_retries} failed for {question.id}: {response.error}[/yellow]")
+
+                    # If not the last attempt, retry after delay
+                    if attempt < max_retries - 1:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        self.console.print(f"[yellow]   Retrying in {delay}s...[/yellow]")
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    # Success!
+                    if attempt > 0:
+                        self.console.print(f"[green]✓ Retry successful for {question.id} on attempt {attempt + 1}[/green]")
+                    return response
+
+            except Exception as e:
+                last_error = str(e)
+                self.console.print(f"[yellow]⚠️  Attempt {attempt + 1}/{max_retries} failed for {question.id}: {str(e)}[/yellow]")
+
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    self.console.print(f"[yellow]   Retrying in {delay}s...[/yellow]")
+                    await asyncio.sleep(delay)
+                else:
+                    # Final attempt failed, create error response
+                    return ModelResponse(
+                        question_id=question.id,
+                        model_name=model,
+                        response_text="",
+                        reasoning_content=None,
+                        tool_calls=None,
+                        full_response={},
+                        metrics={},
+                        timestamp=datetime.now().isoformat(),
+                        error=f"All {max_retries} attempts failed. Last error: {last_error}"
+                    )
+
+        # This should not be reached, but just in case
+        return response if 'response' in locals() else ModelResponse(
+            question_id=question.id,
+            model_name=model,
+            response_text="",
+            reasoning_content=None,
+            tool_calls=None,
+            full_response={},
+            metrics={},
+            timestamp=datetime.now().isoformat(),
+            error=f"All retries exhausted. Last error: {last_error}"
+        )
 
     async def _generate_response(self, model: str, question: Question) -> ModelResponse:
         """Generate a response from a model for a question."""
@@ -403,11 +468,80 @@ class BenchmarkRunner:
         progress: Progress,
         task_id: int
     ) -> Evaluation:
-        """Evaluate a response with concurrency control."""
+        """Evaluate a response with concurrency control and retry logic."""
         async with semaphore:
-            evaluation = await self._evaluate_response(question, response)
+            evaluation = await self._evaluate_response_with_retry(question, response)
             progress.update(task_id, advance=1)
             return evaluation
+
+    async def _evaluate_response_with_retry(
+        self,
+        question: Question,
+        response: ModelResponse,
+        max_retries: int = 3
+    ) -> Evaluation:
+        """Evaluate a response with retry logic for failures."""
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                evaluation = await self._evaluate_response(question, response)
+
+                # Check if evaluation failed (reasoning contains "failed" or score is 0 with error in details)
+                is_failed = (
+                    evaluation.reasoning and "Evaluation failed:" in evaluation.reasoning or
+                    evaluation.details and "evaluation_error" in evaluation.details
+                )
+
+                if is_failed:
+                    last_error = evaluation.reasoning
+                    self.console.print(f"[yellow]⚠️  Judge attempt {attempt + 1}/{max_retries} failed for {question.id}: {evaluation.reasoning}[/yellow]")
+
+                    if attempt < max_retries - 1:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        self.console.print(f"[yellow]   Retrying evaluation in {delay}s...[/yellow]")
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    # Success!
+                    if attempt > 0:
+                        self.console.print(f"[green]✓ Evaluation retry successful for {question.id} on attempt {attempt + 1}[/green]")
+                    return evaluation
+
+            except Exception as e:
+                last_error = str(e)
+                self.console.print(f"[yellow]⚠️  Evaluation attempt {attempt + 1}/{max_retries} failed for {question.id}: {str(e)}[/yellow]")
+
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    self.console.print(f"[yellow]   Retrying evaluation in {delay}s...[/yellow]")
+                    await asyncio.sleep(delay)
+                else:
+                    # Final attempt failed, create error evaluation
+                    return Evaluation(
+                        question_id=question.id,
+                        model_name=response.model_name,
+                        score=0.0,
+                        passed=False,
+                        evaluation_type="llm_judge",
+                        evaluator_model=self.judge_model,
+                        reasoning=f"All {max_retries} evaluation attempts failed. Last error: {last_error}",
+                        details={"retry_exhausted": True, "last_error": str(last_error)},
+                        timestamp=datetime.now().isoformat()
+                    )
+
+        # This should not be reached, but just in case
+        return evaluation if 'evaluation' in locals() else Evaluation(
+            question_id=question.id,
+            model_name=response.model_name,
+            score=0.0,
+            passed=False,
+            evaluation_type="llm_judge",
+            evaluator_model=self.judge_model,
+            reasoning=f"All retries exhausted. Last error: {last_error}",
+            details={"retry_exhausted": True},
+            timestamp=datetime.now().isoformat()
+        )
 
     async def _evaluate_response(self, question: Question, response: ModelResponse) -> Evaluation:
         """
