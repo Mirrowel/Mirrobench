@@ -724,15 +724,17 @@ createApp({
                     return;
                 }
 
-                // Initialize CodeMirror if not already initialized
-                this.$nextTick(() => {
-                    this.initializeCodeMirror();
-                });
-
                 // Load backups
                 await this.loadConfigBackups();
 
-                // Wait for DOM to update before marking as loaded
+                // Wait for DOM to update before initializing CodeMirror
+                await this.$nextTick();
+
+                // Initialize CodeMirror eagerly (so YAML modal opens instantly)
+                // CodeMirror can initialize on hidden elements
+                this.initializeCodeMirror();
+
+                // Wait for CodeMirror to finish initializing
                 await this.$nextTick();
 
                 // Mark loading complete
