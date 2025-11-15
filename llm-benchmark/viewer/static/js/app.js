@@ -52,7 +52,8 @@ createApp({
             configErrors: [],
             configSaving: false,
             configBackups: [],
-            configTab: 'visual', // 'visual' or 'yaml'
+            configSection: 'judge', // Current config section: judge, fixer, models, filtering, performance, other
+            showYamlCodeModal: false,
 
             // Visual Config Editor Data
             visualConfig: {
@@ -173,9 +174,7 @@ createApp({
         visualConfig: {
             handler() {
                 // Sync visual config to YAML in real-time
-                if (this.configTab === 'visual') {
-                    this.syncVisualToYaml();
-                }
+                this.syncVisualToYaml();
             },
             deep: true
         },
@@ -662,7 +661,8 @@ createApp({
                             system_instruction_position: jc.system_instruction_position || 'prepend',
                             options: jc.options || {}
                         };
-                        this.judgeModelOptionsJSON = jc.options ? JSON.stringify(jc.options, null, 2) : '';
+                        // Strip outer braces for display
+                        this.judgeModelOptionsJSON = jc.options ? this.stripOuterBraces(JSON.stringify(jc.options, null, 2)) : '';
                     }
 
                     if (this.visualConfig.fixer_model && this.visualConfig.model_configs[this.visualConfig.fixer_model]) {
@@ -672,7 +672,8 @@ createApp({
                             system_instruction_position: fc.system_instruction_position || 'prepend',
                             options: fc.options || {}
                         };
-                        this.fixerModelOptionsJSON = fc.options ? JSON.stringify(fc.options, null, 2) : '';
+                        // Strip outer braces for display
+                        this.fixerModelOptionsJSON = fc.options ? this.stripOuterBraces(JSON.stringify(fc.options, null, 2)) : '';
                     }
 
                     // Convert question_ids array to text
@@ -686,7 +687,8 @@ createApp({
                             system_instruction_position: config.system_instruction_position || 'prepend',
                             options: config.options || {}
                         };
-                        this.editingModelOptionsJSON[model] = config.options ? JSON.stringify(config.options, null, 2) : '';
+                        // Strip outer braces for display
+                        this.editingModelOptionsJSON[model] = config.options ? this.stripOuterBraces(JSON.stringify(config.options, null, 2)) : '';
                     });
 
                 } catch (yamlError) {
@@ -889,7 +891,7 @@ createApp({
 
         validateJSON(type) {
             // Validate JSON for judge or fixer
-            const jsonText = type === 'judge' ? this.judgeModelOptionsJSON : this.fixerModelOptionsJSON;
+            let jsonText = type === 'judge' ? this.judgeModelOptionsJSON : this.fixerModelOptionsJSON;
 
             if (!jsonText.trim()) {
                 this.jsonErrors[type] = '';
@@ -899,6 +901,12 @@ createApp({
                     this.fixerModelConfig.options = {};
                 }
                 return;
+            }
+
+            // Smart JSON: Auto-add braces if missing
+            jsonText = jsonText.trim();
+            if (!jsonText.startsWith('{')) {
+                jsonText = '{' + jsonText + '}';
             }
 
             try {
@@ -915,12 +923,18 @@ createApp({
         },
 
         validateModelOptionsJSON(modelId) {
-            const jsonText = this.editingModelOptionsJSON[modelId];
+            let jsonText = this.editingModelOptionsJSON[modelId];
 
             if (!jsonText || !jsonText.trim()) {
                 this.jsonErrors['model_' + modelId] = '';
                 this.editingModelConfigs[modelId].options = {};
                 return;
+            }
+
+            // Smart JSON: Auto-add braces if missing
+            jsonText = jsonText.trim();
+            if (!jsonText.startsWith('{')) {
+                jsonText = '{' + jsonText + '}';
             }
 
             try {
@@ -954,7 +968,12 @@ createApp({
                 }
                 if (this.newModel.optionsJSON) {
                     try {
-                        config.options = JSON.parse(this.newModel.optionsJSON);
+                        // Smart JSON: Auto-add braces if missing
+                        let jsonText = this.newModel.optionsJSON.trim();
+                        if (!jsonText.startsWith('{')) {
+                            jsonText = '{' + jsonText + '}';
+                        }
+                        config.options = JSON.parse(jsonText);
                     } catch (error) {
                         this.showToast('Invalid JSON in options', 'error');
                         return;
@@ -964,8 +983,9 @@ createApp({
 
                 // Initialize editing config
                 this.editingModelConfigs[this.newModel.id] = { ...config };
+                // Strip outer braces for display
                 this.editingModelOptionsJSON[this.newModel.id] = config.options ?
-                    JSON.stringify(config.options, null, 2) : '';
+                    this.stripOuterBraces(JSON.stringify(config.options, null, 2)) : '';
             }
 
             this.showToast(`Model ${this.newModel.id} added`, 'success');
@@ -1058,6 +1078,18 @@ createApp({
         deleteProviderLimit(provider) {
             delete this.visualConfig.provider_concurrency[provider];
             this.showToast(`Provider ${provider} limit removed`, 'success');
+        },
+
+        stripOuterBraces(jsonString) {
+            // Strip outer { } from JSON string for display
+            if (!jsonString) return '';
+            const trimmed = jsonString.trim();
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                // Remove first { and last }, keeping inner content
+                const inner = trimmed.slice(1, -1).trim();
+                return inner;
+            }
+            return jsonString;
         },
 
         async loadCategoriesDetailed() {
