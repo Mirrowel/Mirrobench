@@ -1,0 +1,221 @@
+# ============================================================================
+# LLM Benchmark Configuration Template
+# ============================================================================
+# This is a complete template showing ALL available configuration options.
+# Copy this to config.yaml and customize for your needs.
+# ============================================================================
+
+# ============================================================================
+# MODELS TO TEST
+# ============================================================================
+# List of model IDs to benchmark against all questions
+# Format: "provider/model-name"
+# Examples:
+#   - openai/gpt-4
+#   - anthropic/claude-3-5-sonnet-20240620
+#   - gemini/gemini-2.5-pro
+#   - nvidia_nim/deepseek-ai/deepseek-v3.1
+#   - opencode/custom-model
+#   - iflow/qwen3-max
+models:
+  - "openai/gpt-4"
+  - "anthropic/claude-3-5-sonnet-20240620"
+  # Add more models here
+
+# ============================================================================
+# MODEL DISPLAY NAMES
+# ============================================================================
+# Friendly names for the viewer UI
+# If a model is not listed here, its full provider/model ID will be shown
+model_display_names:
+  "openai/gpt-4": "GPT-4"
+  "anthropic/claude-3-5-sonnet-20240620": "Claude 3.5 Sonnet"
+  "gemini/gemini-2.5-pro": "Gemini 2.5 Pro"
+
+# ============================================================================
+# JUDGE MODEL
+# ============================================================================
+# Model used for LLM-as-judge evaluation
+# This model evaluates responses for questions with evaluation_type: "llm_judge"
+# Recommended: Use a capable reasoning model
+judge_model: "openai/gpt-4"
+
+# ============================================================================
+# FIXER MODEL
+# ============================================================================
+# Model used to reformat responses with incorrect formatting
+# Called when user clicks "Fix Formatting" in viewer
+# Can be the same as judge_model or a specialized formatting model
+fixer_model: "openai/gpt-4"
+
+# ============================================================================
+# PER-MODEL CONFIGURATION
+# ============================================================================
+# Configure system instructions and API options for specific models
+# This is the recommended way to customize model behavior
+model_configs:
+  # Example: Full configuration with system instruction and API options
+  # "openai/o1":
+  #   # System instruction prepended or appended to each prompt
+  #   system_instruction: "Think step by step before answering."
+  #   # Position: "prepend" (before prompt) or "append" (after prompt)
+  #   # Default: "prepend"
+  #   system_instruction_position: "prepend"
+  #   # Additional API request body parameters (model-specific)
+  #   options:
+  #     reasoning_effort: "high"
+  #     temperature: 0.7
+  #     max_tokens: 4000
+
+  # Example: Gemini with thinking mode
+  # "gemini/gemini-2.5-pro":
+  #   system_instruction: "Use detailed reasoning for complex problems."
+  #   system_instruction_position: "append"
+  #   options:
+  #     thinking:
+  #       type: "enabled"
+  #       budget_tokens: 10000
+
+  # Example: DeepSeek with high reasoning
+  # "nvidia_nim/deepseek-ai/deepseek-v3.1":
+  #   options:
+  #     reasoning_effort: "high"
+
+  # Example: GLM models (often need system instruction appended)
+  # "glm/chatglm3":
+  #   system_instruction: "Please think step by step."
+  #   system_instruction_position: "append"
+
+# ============================================================================
+# QUESTION FILTERING
+# ============================================================================
+# Control which questions to test
+
+# Categories to test (leave empty to test all)
+# Available categories:
+#   - cli_tools: CLI applications and productivity tools
+#   - games: Complete games (Pygame, Canvas, etc.)
+#   - web_apps: Interactive web applications
+#   - visualizations: Graphics, charts, SVG art
+#   - simulations: Physics, astronomy, cellular automata
+#   - creative_coding: Fractals, audio visualization, ray tracing
+categories: []  # Empty = test all categories
+# categories:
+#   - cli_tools
+#   - games
+#   - web_apps
+
+# Specific question IDs to test (leave empty to test all in selected categories)
+# Useful for debugging or targeted benchmarks
+question_ids: []
+# question_ids:
+#   - coding_fibonacci
+#   - reasoning_river_crossing
+#   - web_todo_app
+
+# ============================================================================
+# CONCURRENCY SETTINGS
+# ============================================================================
+# Control parallel API requests to manage rate limits
+
+# Global maximum concurrent requests (default for all providers)
+# Increase for faster benchmarks (if rate limits allow)
+# Decrease to avoid rate limit errors
+# Default: 10
+# Recommended: 5-20 depending on your API keys
+max_concurrent: 10
+
+# Per-provider concurrency limits (optional)
+# Overrides max_concurrent for specific providers
+# Useful when different providers have different rate limits
+provider_concurrency:
+  # Example configurations:
+  # openai: 5        # OpenAI has strict rate limits
+  # anthropic: 10    # Anthropic allows more concurrent requests
+  # gemini: 20       # Gemini can handle high concurrency
+  # nvidia_nim: 3    # NIM endpoints may have lower limits
+  # opencode: 2      # Custom provider with low limits
+  # iflow: 5         # Custom provider concurrency
+
+# ============================================================================
+# RETRY AND TIMEOUT SETTINGS
+# ============================================================================
+# Configure API request resilience
+retry_settings:
+  # Maximum retry attempts per API key before rotating to next key
+  # Helps handle transient errors and rate limits
+  # Default: 2
+  # Recommended: 3-5 for more resilient retries
+  max_retries_per_key: 5
+
+  # Global timeout for a single API request across all key rotations (seconds)
+  # Total time spent trying all available keys for one request
+  # Default: 30
+  # Recommended: 120-300 for complex models or slow APIs
+  global_timeout: 180
+
+# ============================================================================
+# EVALUATION SETTINGS
+# ============================================================================
+# Configure how responses are evaluated
+evaluation:
+  # Score threshold for "passing" a question (0-100)
+  # Questions scoring at or above this threshold count as passed
+  # Default: 60
+  # Recommended: 60-80 depending on difficulty
+  pass_threshold: 60
+
+  # Timeout for code execution (seconds)
+  # How long to wait for code-based questions to execute
+  # Default: 10
+  # Recommended: 5-30 depending on question complexity
+  code_timeout: 10
+
+# ============================================================================
+# CODE FORMATTING INSTRUCTIONS
+# ============================================================================
+# Guidance prepended to code-generation questions
+# Helps models generate clean, parseable code
+code_formatting_instructions:
+  # Enable or disable formatting instructions
+  enabled: true
+
+  # Instruction text prepended to coding questions
+  # Customize this for your preferred code output format
+  instruction: |
+    Provide ONLY the code in your response. Do not include explanations, descriptions, or commentary.
+    Use markdown code blocks with language tags.
+    For single-file solutions: ```python or ```html or ```javascript
+    For multi-file apps, use: ```html:index.html, ```css:styles.css, ```javascript:app.js
+    Ensure files reference each other correctly (e.g., <link href="styles.css">).
+    Output the complete, working code and nothing else.
+
+# ============================================================================
+# VIEWER SETTINGS
+# ============================================================================
+# Configure the web-based results viewer
+viewer:
+  # Host to bind to
+  # "0.0.0.0" = accessible from any network interface
+  # "127.0.0.1" = localhost only
+  host: "0.0.0.0"
+
+  # Port to run the viewer on
+  # Default: 8000
+  port: 8000
+
+# ============================================================================
+# DIRECTORY SETTINGS
+# ============================================================================
+# Paths relative to llm-benchmark/ directory
+
+# Directory containing question YAML files
+questions_dir: "questions"
+
+# Directory where benchmark results are saved
+results_dir: "results"
+
+# ============================================================================
+# END OF CONFIGURATION
+# ============================================================================
+# For more information, see: https://github.com/your-repo/llm-benchmark

@@ -49,11 +49,15 @@ createApp({
 
             // Config Editor Data
             configContent: '',
+            originalYamlText: '', // Full YAML text with comments (working copy)
             configErrors: [],
             configSaving: false,
             configBackups: [],
             configSection: 'judge', // Current config section: judge, fixer, models, filtering, performance, other
             showYamlCodeModal: false,
+            isSyncing: false, // Flag to prevent infinite loops between visual and YAML sync
+            configLoading: false, // Loading state for config
+            configLoadError: null, // Error message if config load fails
 
             // Visual Config Editor Data
             visualConfig: {
@@ -168,6 +172,15 @@ createApp({
             if (show) {
                 this.loadConfig();
                 this.loadCategoriesDetailed();
+            }
+        },
+
+        showYamlCodeModal(show) {
+            if (show) {
+                // Ensure CodeMirror is initialized when YAML modal opens
+                this.$nextTick(() => {
+                    this.initializeCodeMirror();
+                });
             }
         },
 
@@ -627,14 +640,26 @@ createApp({
         // ====================================================================
 
         async loadConfig() {
+            this.configLoading = true;
+            this.configLoadError = null;
+
+            // Timeout after 10 seconds
+            const timeout = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Config load timeout (10s)')), 10000);
+            });
+
             try {
-                const response = await fetch('/api/config');
-                const data = await response.json();
-                this.configContent = data.content || '';
+                // Race between fetch and timeout
+                const fetchPromise = fetch('/api/config').then(r => r.json());
+                const data = await Promise.race([fetchPromise, timeout]);
+
+                // Store complete YAML with comments (working copy)
+                this.originalYamlText = data.content || '';
+                this.configContent = this.originalYamlText;
 
                 // Parse YAML for visual editor
                 try {
-                    const parsed = jsyaml.load(this.configContent);
+                    const parsed = jsyaml.load(this.originalYamlText);
                     this.visualConfig = {
                         models: parsed.models || [],
                         model_display_names: parsed.model_display_names || {},
@@ -693,7 +718,10 @@ createApp({
 
                 } catch (yamlError) {
                     console.error('Error parsing YAML:', yamlError);
+                    this.configLoadError = 'Error parsing config YAML: ' + yamlError.message;
                     this.showToast('Error parsing config YAML', 'error');
+                    this.configLoading = false;
+                    return;
                 }
 
                 // Initialize CodeMirror if not already initialized
@@ -704,9 +732,24 @@ createApp({
                 // Load backups
                 await this.loadConfigBackups();
 
+                // Wait for DOM to update before marking as loaded
+                await this.$nextTick();
+
+                // Mark loading complete
+                this.configLoading = false;
+
             } catch (error) {
                 console.error('Error loading config:', error);
-                this.showToast('Failed to load config', 'error');
+                this.configLoadError = error.message || 'Failed to load config';
+                this.showToast('Failed to load config: ' + (error.message || 'Unknown error'), 'error');
+                this.configLoading = false;
+
+                // Re-render icons for error state
+                this.$nextTick(() => {
+                    if (window.lucide) {
+                        lucide.createIcons();
+                    }
+                });
             }
         },
 
@@ -716,6 +759,10 @@ createApp({
 
             // Check if already initialized
             if (textarea.nextSibling && textarea.nextSibling.classList && textarea.nextSibling.classList.contains('CodeMirror')) {
+                // Already initialized, just update content
+                if (this.configEditor) {
+                    this.configEditor.setValue(this.originalYamlText);
+                }
                 return;
             }
 
@@ -732,12 +779,24 @@ createApp({
             // Set editor height
             editor.setSize(null, '500px');
 
+            // Handle YAML changes and sync to visual editor
             editor.on('change', (cm) => {
-                this.configContent = cm.getValue();
+                // Prevent infinite loops
+                if (this.isSyncing) return;
+
+                const yamlText = cm.getValue();
+                this.configContent = yamlText;
+                this.originalYamlText = yamlText;
+
+                // Parse YAML and update visual editor (YAML → Visual sync)
+                this.syncYamlToVisual(yamlText);
             });
 
             // Store editor instance
             this.configEditor = editor;
+
+            // Set initial content
+            editor.setValue(this.originalYamlText);
         },
 
         async validateConfig() {
@@ -781,7 +840,8 @@ createApp({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        yaml_content: this.configContent
+                        // Save originalYamlText (working copy with comments when possible)
+                        yaml_content: this.originalYamlText
                     })
                 });
 
@@ -844,16 +904,26 @@ createApp({
                     indent: 2,
                     lineWidth: 120,
                     noRefs: true,
-                    sortKeys: false
+                    sortKeys: false,
+                    quotingType: '"',  // Use double quotes for strings (preserves original style)
+                    forceQuotes: true  // Force quotes on all strings
                 });
+
+                // Update originalYamlText (best-effort: regenerate YAML)
+                // Note: Comments from original YAML will be lost when visual editor changes
+                // This is acceptable per user's "best effort" requirement
+                this.originalYamlText = yamlContent;
                 this.configContent = yamlContent;
 
-                // Update CodeMirror if it exists
+                // Update CodeMirror if it exists (prevent infinite loop)
                 if (this.configEditor) {
+                    this.isSyncing = true;
                     this.configEditor.setValue(yamlContent);
+                    this.isSyncing = false;
                 }
             } catch (error) {
                 console.error('Error converting to YAML:', error);
+                this.isSyncing = false;
             }
         },
 
@@ -889,11 +959,71 @@ createApp({
             }
         },
 
-        validateJSON(type) {
-            // Validate JSON for judge or fixer
-            let jsonText = type === 'judge' ? this.judgeModelOptionsJSON : this.fixerModelOptionsJSON;
+        syncYamlToVisual(yamlText) {
+            // Parse YAML and update visual editor fields (YAML → Visual sync)
+            try {
+                const parsed = jsyaml.load(yamlText);
+                if (!parsed) return;
 
-            if (!jsonText.trim()) {
+                // Update visualConfig
+                this.visualConfig.models = parsed.models || [];
+                this.visualConfig.model_display_names = parsed.model_display_names || {};
+                this.visualConfig.model_configs = parsed.model_configs || {};
+                this.visualConfig.judge_model = parsed.judge_model || '';
+                this.visualConfig.fixer_model = parsed.fixer_model || '';
+                this.visualConfig.categories = parsed.categories || [];
+                this.visualConfig.question_ids = parsed.question_ids || [];
+                this.visualConfig.max_concurrent = parsed.max_concurrent || 10;
+                this.visualConfig.provider_concurrency = parsed.provider_concurrency || {};
+                this.visualConfig.retry_settings = parsed.retry_settings || { max_retries_per_key: 5, global_timeout: 180 };
+                this.visualConfig.evaluation = parsed.evaluation || { pass_threshold: 60, code_timeout: 10 };
+                this.visualConfig.viewer = parsed.viewer || { host: '0.0.0.0', port: 8000 };
+                this.visualConfig.code_formatting_instructions = parsed.code_formatting_instructions || { enabled: true, instruction: '' };
+                this.visualConfig.questions_dir = parsed.questions_dir || 'questions';
+                this.visualConfig.results_dir = parsed.results_dir || 'results';
+
+                // Update judge and fixer configs
+                if (this.visualConfig.judge_model && this.visualConfig.model_configs[this.visualConfig.judge_model]) {
+                    const jc = this.visualConfig.model_configs[this.visualConfig.judge_model];
+                    this.judgeModelConfig.system_instruction = jc.system_instruction || '';
+                    this.judgeModelConfig.system_instruction_position = jc.system_instruction_position || 'prepend';
+                    this.judgeModelConfig.options = jc.options || {};
+                    this.judgeModelOptionsJSON = jc.options ? this.stripOuterBraces(JSON.stringify(jc.options, null, 2)) : '';
+                }
+
+                if (this.visualConfig.fixer_model && this.visualConfig.model_configs[this.visualConfig.fixer_model]) {
+                    const fc = this.visualConfig.model_configs[this.visualConfig.fixer_model];
+                    this.fixerModelConfig.system_instruction = fc.system_instruction || '';
+                    this.fixerModelConfig.system_instruction_position = fc.system_instruction_position || 'prepend';
+                    this.fixerModelConfig.options = fc.options || {};
+                    this.fixerModelOptionsJSON = fc.options ? this.stripOuterBraces(JSON.stringify(fc.options, null, 2)) : '';
+                }
+
+                // Update question IDs text
+                this.questionIdsText = this.visualConfig.question_ids.join(', ');
+
+                // Update editing configs for models
+                this.visualConfig.models.forEach(model => {
+                    const config = this.visualConfig.model_configs[model] || {};
+                    this.editingModelConfigs[model] = {
+                        system_instruction: config.system_instruction || '',
+                        system_instruction_position: config.system_instruction_position || 'prepend',
+                        options: config.options || {}
+                    };
+                    this.editingModelOptionsJSON[model] = config.options ? this.stripOuterBraces(JSON.stringify(config.options, null, 2)) : '';
+                });
+
+            } catch (error) {
+                // Silent fail - don't show errors during typing
+                console.error('YAML parse error (during sync):', error);
+            }
+        },
+
+        validateJSON(type) {
+            // Validate JSON or YAML for judge or fixer (accepts both formats)
+            let inputText = type === 'judge' ? this.judgeModelOptionsJSON : this.fixerModelOptionsJSON;
+
+            if (!inputText.trim()) {
                 this.jsonErrors[type] = '';
                 if (type === 'judge') {
                     this.judgeModelConfig.options = {};
@@ -903,47 +1033,62 @@ createApp({
                 return;
             }
 
-            // Smart JSON: Auto-add braces if missing
-            jsonText = jsonText.trim();
-            if (!jsonText.startsWith('{')) {
-                jsonText = '{' + jsonText + '}';
+            let parsed = null;
+            inputText = inputText.trim();
+
+            // Try JSON first (with auto-added braces)
+            let jsonText = inputText.startsWith('{') ? inputText : '{' + inputText + '}';
+            try {
+                parsed = JSON.parse(jsonText);
+                this.jsonErrors[type] = '';
+            } catch (jsonError) {
+                // JSON failed, try YAML (supports both "field": "value" and field: value)
+                try {
+                    parsed = jsyaml.load(jsonText);
+                    this.jsonErrors[type] = '';
+                } catch (yamlError) {
+                    this.jsonErrors[type] = 'Invalid JSON/YAML: ' + jsonError.message;
+                    return;
+                }
             }
 
-            try {
-                const parsed = JSON.parse(jsonText);
-                this.jsonErrors[type] = '';
-                if (type === 'judge') {
-                    this.judgeModelConfig.options = parsed;
-                } else {
-                    this.fixerModelConfig.options = parsed;
-                }
-            } catch (error) {
-                this.jsonErrors[type] = error.message;
+            if (type === 'judge') {
+                this.judgeModelConfig.options = parsed;
+            } else {
+                this.fixerModelConfig.options = parsed;
             }
         },
 
         validateModelOptionsJSON(modelId) {
-            let jsonText = this.editingModelOptionsJSON[modelId];
+            // Validate JSON or YAML for model options (accepts both formats)
+            let inputText = this.editingModelOptionsJSON[modelId];
 
-            if (!jsonText || !jsonText.trim()) {
+            if (!inputText || !inputText.trim()) {
                 this.jsonErrors['model_' + modelId] = '';
                 this.editingModelConfigs[modelId].options = {};
                 return;
             }
 
-            // Smart JSON: Auto-add braces if missing
-            jsonText = jsonText.trim();
-            if (!jsonText.startsWith('{')) {
-                jsonText = '{' + jsonText + '}';
+            let parsed = null;
+            inputText = inputText.trim();
+
+            // Try JSON first (with auto-added braces)
+            let jsonText = inputText.startsWith('{') ? inputText : '{' + inputText + '}';
+            try {
+                parsed = JSON.parse(jsonText);
+                this.jsonErrors['model_' + modelId] = '';
+            } catch (jsonError) {
+                // JSON failed, try YAML (supports both "field": "value" and field: value)
+                try {
+                    parsed = jsyaml.load(jsonText);
+                    this.jsonErrors['model_' + modelId] = '';
+                } catch (yamlError) {
+                    this.jsonErrors['model_' + modelId] = 'Invalid JSON/YAML: ' + jsonError.message;
+                    return;
+                }
             }
 
-            try {
-                const parsed = JSON.parse(jsonText);
-                this.jsonErrors['model_' + modelId] = '';
-                this.editingModelConfigs[modelId].options = parsed;
-            } catch (error) {
-                this.jsonErrors['model_' + modelId] = error.message;
-            }
+            this.editingModelConfigs[modelId].options = parsed;
         },
 
         addModel() {
@@ -967,16 +1112,20 @@ createApp({
                     config.system_instruction_position = this.newModel.position;
                 }
                 if (this.newModel.optionsJSON) {
+                    let inputText = this.newModel.optionsJSON.trim();
+                    let jsonText = inputText.startsWith('{') ? inputText : '{' + inputText + '}';
+
                     try {
-                        // Smart JSON: Auto-add braces if missing
-                        let jsonText = this.newModel.optionsJSON.trim();
-                        if (!jsonText.startsWith('{')) {
-                            jsonText = '{' + jsonText + '}';
-                        }
+                        // Try JSON first
                         config.options = JSON.parse(jsonText);
-                    } catch (error) {
-                        this.showToast('Invalid JSON in options', 'error');
-                        return;
+                    } catch (jsonError) {
+                        // JSON failed, try YAML (supports both "field": "value" and field: value)
+                        try {
+                            config.options = jsyaml.load(jsonText);
+                        } catch (yamlError) {
+                            this.showToast('Invalid JSON/YAML in options', 'error');
+                            return;
+                        }
                     }
                 }
                 this.visualConfig.model_configs[this.newModel.id] = config;
@@ -1034,7 +1183,7 @@ createApp({
                     options: config.options || {}
                 };
                 this.editingModelOptionsJSON[modelId] = config.options ?
-                    JSON.stringify(config.options, null, 2) : '';
+                    this.stripOuterBraces(JSON.stringify(config.options, null, 2)) : '';
             }
 
             // Re-render icons
@@ -1043,6 +1192,32 @@ createApp({
                     lucide.createIcons();
                 }
             });
+        },
+
+        expandModel(modelId) {
+            // Only expand if not already expanded (don't collapse)
+            if (!this.expandedModels[modelId]) {
+                this.expandedModels[modelId] = true;
+
+                // Initialize editing config if not already
+                if (!this.editingModelConfigs[modelId]) {
+                    const config = this.visualConfig.model_configs[modelId] || {};
+                    this.editingModelConfigs[modelId] = {
+                        system_instruction: config.system_instruction || '',
+                        system_instruction_position: config.system_instruction_position || 'prepend',
+                        options: config.options || {}
+                    };
+                    this.editingModelOptionsJSON[modelId] = config.options ?
+                        this.stripOuterBraces(JSON.stringify(config.options, null, 2)) : '';
+                }
+
+                // Re-render icons
+                this.$nextTick(() => {
+                    if (window.lucide) {
+                        lucide.createIcons();
+                    }
+                });
+            }
         },
 
         saveModelConfig(modelId) {

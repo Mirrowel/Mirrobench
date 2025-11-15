@@ -88,14 +88,14 @@
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
         }
 
-        /* CodeMirror custom styling */
+        /* CodeMirror custom styling - Dracula theme colors */
         .CodeMirror {
             height: 500px;
             font-size: 14px;
             border-radius: 0.5rem;
             border: 1px solid #374151;
-            background-color: #1f2937 !important;
-            color: #f9fafb !important;
+            background-color: #282a36 !important;
+            color: #f8f8f2 !important;
         }
 
         .CodeMirror-scroll {
@@ -103,12 +103,16 @@
         }
 
         .CodeMirror-gutters {
-            background-color: #111827 !important;
-            border-right: 1px solid #374151 !important;
+            background-color: #21222c !important;
+            border-right: 1px solid #44475a !important;
         }
 
         .CodeMirror-linenumber {
-            color: #6b7280 !important;
+            color: #6272a4 !important;
+        }
+
+        .CodeMirror-cursor {
+            border-left-color: #f8f8f0 !important;
         }
     </style>
 </head>
@@ -477,34 +481,34 @@
                 </div>
 
                 <!-- Tab Navigation -->
-                <div class="flex border-b border-gray-700 px-6 overflow-x-auto">
+                <div class="flex border-b border-gray-700 px-6 flex-shrink-0 min-h-[48px]">
                     <button @click="configSection = 'judge'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'judge' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Judge Model
                     </button>
                     <button @click="configSection = 'fixer'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'fixer' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Fixer Model
                     </button>
                     <button @click="configSection = 'models'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'models' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Models
                     </button>
                     <button @click="configSection = 'filtering'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'filtering' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Filtering
                     </button>
                     <button @click="configSection = 'performance'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'performance' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Performance
                     </button>
                     <button @click="configSection = 'other'"
-                            :class="['px-4 py-3 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
+                            :class="['px-4 h-12 flex items-center font-medium border-b-2 transition-colors whitespace-nowrap',
                                      configSection === 'other' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-400 hover:text-white']">
                         Other Settings
                     </button>
@@ -513,6 +517,24 @@
                 <!-- Modal Body -->
                 <div class="flex-1 overflow-y-auto p-6">
 
+                    <!-- Loading State -->
+                    <div v-if="configLoading" class="flex flex-col items-center justify-center py-20">
+                        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-red-500 mb-4"></div>
+                        <p class="text-gray-400 text-lg">Loading configuration...</p>
+                    </div>
+
+                    <!-- Error State -->
+                    <div v-else-if="configLoadError" class="flex flex-col items-center justify-center py-20">
+                        <i data-lucide="alert-circle" class="w-16 h-16 text-red-500 mb-4"></i>
+                        <p class="text-red-400 text-lg mb-2">Failed to load config</p>
+                        <p class="text-gray-400 text-sm mb-6">{{ configLoadError }}</p>
+                        <button @click="loadConfig" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg">
+                            Retry
+                        </button>
+                    </div>
+
+                    <!-- Config Content (only show when loaded) -->
+                    <div v-else>
                         <!-- Judge Model Section -->
                         <div v-if="configSection === 'judge'" class="bg-gray-900/50 rounded-lg p-6 border border-gray-700">
                             <div class="flex items-center space-x-3 mb-4">
@@ -552,11 +574,11 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-sm font-medium mb-2">Options (JSON content without outer braces)</label>
+                                    <label class="block text-sm font-medium mb-2">Options (JSON/YAML, without outer braces)</label>
                                     <textarea v-model="judgeModelOptionsJSON"
                                               @blur="validateJSON('judge')"
                                               rows="3"
-                                              placeholder='"reasoning_effort": "high"'
+                                              placeholder='reasoning_effort: high  OR  "reasoning_effort": "high"'
                                               class="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:border-red-500 focus:outline-none font-mono text-sm resize-none"></textarea>
                                     <div v-if="jsonErrors.judge" class="mt-1 text-sm text-red-400">
                                         {{ jsonErrors.judge }}
@@ -604,11 +626,11 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-sm font-medium mb-2">Options (JSON content without outer braces)</label>
+                                    <label class="block text-sm font-medium mb-2">Options (JSON/YAML, without outer braces)</label>
                                     <textarea v-model="fixerModelOptionsJSON"
                                               @blur="validateJSON('fixer')"
                                               rows="3"
-                                              placeholder='"reasoning_effort": "high"'
+                                              placeholder='reasoning_effort: high  OR  "reasoning_effort": "high"'
                                               class="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:border-red-500 focus:outline-none font-mono text-sm resize-none"></textarea>
                                     <div v-if="jsonErrors.fixer" class="mt-1 text-sm text-red-400">
                                         {{ jsonErrors.fixer }}
@@ -675,9 +697,9 @@
                                                 </div>
                                             </div>
                                             <div>
-                                                <label class="block text-sm mb-1">Options (JSON content without outer braces)</label>
+                                                <label class="block text-sm mb-1">Options (JSON/YAML, without outer braces)</label>
                                                 <textarea v-model="newModel.optionsJSON" rows="3"
-                                                          placeholder='"reasoning_effort": "high"'
+                                                          placeholder='reasoning_effort: high  OR  "reasoning_effort": "high"'
                                                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:border-red-500 focus:outline-none font-mono text-xs resize-none"></textarea>
                                             </div>
                                         </div>
@@ -700,9 +722,9 @@
                             <!-- Model Cards -->
                             <div class="space-y-3">
                                 <div v-for="(model, index) in filteredModels" :key="model"
-                                     @click.self="toggleModelExpand(model)"
+                                     @click.self="expandModel(model)"
                                      class="p-4 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hover:border-gray-600 transition-colors">
-                                    <div class="flex items-start justify-between" @click.self="toggleModelExpand(model)">
+                                    <div class="flex items-start justify-between" @click.self="expandModel(model)">
                                         <div class="flex items-center space-x-2">
                                             <button @click.stop="toggleModelExpand(model)"
                                                     class="text-gray-400 hover:text-white">
@@ -710,7 +732,7 @@
                                             </button>
                                         </div>
 
-                                        <div class="flex-1 px-3" @click="toggleModelExpand(model)">
+                                        <div class="flex-1 px-3" @click="expandModel(model)">
                                             <div class="flex items-center space-x-2">
                                                 <span class="font-semibold">{{ model }}</span>
                                                 <span v-if="visualConfig.model_display_names[model]"
@@ -756,11 +778,11 @@
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <label class="block text-sm font-medium mb-1">Options (JSON content without outer braces)</label>
+                                                    <label class="block text-sm font-medium mb-1">Options (JSON/YAML, without outer braces)</label>
                                                     <textarea v-model="editingModelOptionsJSON[model]"
                                                               @blur="validateModelOptionsJSON(model)"
                                                               rows="3"
-                                                              placeholder='"reasoning_effort": "high"'
+                                                              placeholder='reasoning_effort: high  OR  "reasoning_effort": "high"'
                                                               class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:border-red-500 focus:outline-none font-mono text-xs resize-none"></textarea>
                                                     <div v-if="jsonErrors['model_' + model]" class="mt-1 text-xs text-red-400">
                                                         {{ jsonErrors['model_' + model] }}
@@ -966,7 +988,9 @@
 
                         </div><!-- End Other Settings Section -->
 
-                </div>
+                    </div><!-- End Config Content (v-else) -->
+
+                </div><!-- End Modal Body -->
 
                 <!-- Modal Footer -->
                 <div class="flex items-center justify-between p-6 border-t border-gray-700">
