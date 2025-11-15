@@ -654,16 +654,17 @@ class BenchmarkRunner:
     ) -> Evaluation:
         """
         Evaluate a response based on the question's evaluation type.
-        For code execution questions, we run BOTH code executor AND judge separately.
+        For code execution questions, we run code executor FIRST, then pass results to LLM judge.
         """
-        # For code execution questions: run BOTH code executor AND judge
+        # For code execution questions: run code executor FIRST, then pass results to LLM judge
         if question.evaluation_type == "code_execution":
-            # Run code executor to get technical validation
+            # Step 1: Run code executor to get technical validation
             code_eval = await self.code_executor.evaluate(question, response)
             self.results_manager.save_evaluation(code_eval)
 
-            # ALSO run LLM judge to evaluate response quality (separate from code execution)
-            judge_eval = await self.llm_judge.evaluate(question, response)
+            # Step 2: Run LLM judge with code execution results
+            # Pass code_eval to judge so it can see execution failures
+            judge_eval = await self.llm_judge.evaluate(question, response, code_execution_result=code_eval)
             judge_eval.evaluation_type = "llm_judge"  # Mark as judge evaluation
             self.results_manager.save_evaluation(judge_eval)
 

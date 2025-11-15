@@ -21,13 +21,19 @@ class LLMJudgeEvaluator:
         self.judge_model = judge_model
         self.model_options = model_options or {}
 
-    async def evaluate(self, question: Question, response: ModelResponse) -> Evaluation:
+    async def evaluate(
+        self,
+        question: Question,
+        response: ModelResponse,
+        code_execution_result: Optional[Evaluation] = None
+    ) -> Evaluation:
         """
         Evaluate a model response using an LLM judge.
 
         Args:
             question: The original question
             response: The model's response to evaluate
+            code_execution_result: Optional code execution evaluation result to inform the judge
 
         Returns:
             Evaluation: The evaluation result
@@ -46,7 +52,7 @@ class LLMJudgeEvaluator:
             )
 
         # Build the evaluation prompt
-        eval_prompt = self._build_evaluation_prompt(question, response)
+        eval_prompt = self._build_evaluation_prompt(question, response, code_execution_result)
 
         try:
             # Build request kwargs
@@ -138,7 +144,12 @@ class LLMJudgeEvaluator:
                 timestamp=datetime.now().isoformat()
             )
 
-    def _build_evaluation_prompt(self, question: Question, response: ModelResponse) -> str:
+    def _build_evaluation_prompt(
+        self,
+        question: Question,
+        response: ModelResponse,
+        code_execution_result: Optional[Evaluation] = None
+    ) -> str:
         """Build the prompt for the judge model."""
         criteria = question.evaluation_criteria or "Evaluate the response for correctness, completeness, and quality."
 
@@ -159,6 +170,26 @@ class LLMJudgeEvaluator:
             prompt += f"""
 **Expected Output (for reference):**
 {question.expected_output}
+"""
+
+        # Add code execution results if provided
+        if code_execution_result:
+            prompt += f"""
+**Code Execution Results:**
+- Status: {'PASSED' if code_execution_result.passed else 'FAILED'}
+- Score: {code_execution_result.score}/100
+- Reasoning: {code_execution_result.reasoning}
+"""
+            if code_execution_result.details:
+                if 'error' in code_execution_result.details:
+                    prompt += f"""- Error: {code_execution_result.details['error']}
+"""
+                if 'output' in code_execution_result.details:
+                    prompt += f"""- Output: {code_execution_result.details['output']}
+"""
+
+            prompt += """
+**IMPORTANT:** The code execution test has already run. Consider this technical validation in your evaluation. If the code failed to execute properly, this should heavily influence your score, even if the code looks reasonable at first glance.
 """
 
         prompt += """

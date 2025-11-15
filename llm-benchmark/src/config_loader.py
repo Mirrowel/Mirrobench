@@ -132,6 +132,15 @@ class ConfigLoader:
         """Get per-model configurations (instructions and options)."""
         return self.config.get("model_configs", {})
 
+    @property
+    def model_display_names(self) -> Dict[str, str]:
+        """Get friendly display names for models.
+
+        Returns a dictionary mapping model identifiers to friendly display names.
+        If a model is not in the mapping, the full model identifier should be used.
+        """
+        return self.config.get("model_display_names", {})
+
     def get_model_config(self, model_name: str) -> Dict[str, Any]:
         """Get full config for a specific model."""
         return self.model_configs.get(model_name, {})
