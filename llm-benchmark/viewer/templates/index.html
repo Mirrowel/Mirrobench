@@ -709,6 +709,12 @@
                                 <div class="flex items-center justify-between mb-2">
                                     <span class="text-sm font-semibold text-gray-300">Live Logs</span>
                                     <div class="flex items-center space-x-2">
+                                        <button @click="showAdvancedLogs = !showAdvancedLogs"
+                                                :class="['px-3 py-1 text-xs rounded transition flex items-center space-x-1',
+                                                         showAdvancedLogs ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-gray-600 hover:bg-gray-500 text-white']">
+                                            <i :data-lucide="showAdvancedLogs ? 'check-circle' : 'circle'" class="w-3 h-3"></i>
+                                            <span>Advanced</span>
+                                        </button>
                                         <button @click="toggleAutoScroll"
                                                 :class="['px-3 py-1 text-xs rounded transition flex items-center space-x-1',
                                                          benchmarkAutoScroll ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-gray-600 hover:bg-gray-500 text-white']">
@@ -722,13 +728,50 @@
                                         </button>
                                     </div>
                                 </div>
-                                <div class="benchmark-logs-container bg-black rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm resize-y min-h-[420px] max-h-[800px]" style="height: 420px;">
+
+                                <!-- Log Tabs -->
+                                <div class="flex border-b border-gray-700 mb-2">
+                                    <button @click="activeLogTab = 'benchmark'"
+                                            :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                                                     activeLogTab === 'benchmark'
+                                                         ? 'border-purple-500 text-purple-400'
+                                                         : 'border-transparent text-gray-400 hover:text-gray-300']">
+                                        Benchmark Logs
+                                    </button>
+                                    <button v-if="showAdvancedLogs"
+                                            @click="activeLogTab = 'library'"
+                                            :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                                                     activeLogTab === 'library'
+                                                         ? 'border-purple-500 text-purple-400'
+                                                         : 'border-transparent text-gray-400 hover:text-gray-300']">
+                                        Library Logs
+                                    </button>
+                                </div>
+
+                                <!-- Benchmark Logs Container -->
+                                <div v-show="activeLogTab === 'benchmark'"
+                                     class="benchmark-logs-container bg-black rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm resize-y min-h-[420px] max-h-[800px]"
+                                     style="height: 420px;">
                                     <div class="space-y-1">
                                         <div v-for="(log, index) in benchmarkLogs" :key="index" class="text-gray-300">
                                             {{ log }}
                                         </div>
                                         <div v-if="benchmarkLogs.length === 0" class="text-gray-500">
                                             Waiting for logs...
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Library Logs Container -->
+                                <div v-show="activeLogTab === 'library'"
+                                     class="library-logs-container bg-black rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm resize-y min-h-[420px] max-h-[800px]"
+                                     style="height: 420px;">
+                                    <div class="space-y-1">
+                                        <div v-for="(log, index) in benchmarkLibraryLogs" :key="index" class="text-gray-300">
+                                            {{ log }}
+                                        </div>
+                                        <div v-if="benchmarkLibraryLogs.length === 0" class="text-gray-500">
+                                            No library logs yet...
                                         </div>
                                     </div>
                                 </div>
@@ -1761,15 +1804,50 @@
                     </div>
 
                     <!-- Logs -->
-                    <div class="flex-1 overflow-y-auto p-6">
-                        <div class="bg-gray-900 rounded p-4 font-mono text-xs">
-                            <div v-if="selectedJobForLogs.logs && selectedJobForLogs.logs.length > 0">
-                                <div v-for="(log, index) in selectedJobForLogs.logs" :key="index" class="text-gray-300 whitespace-pre-wrap">
-                                    {{ log }}
+                    <div class="flex-1 overflow-hidden flex flex-col">
+                        <!-- Log Tabs -->
+                        <div class="flex border-b border-gray-700 px-6">
+                            <button @click="selectedJobLogTab = 'benchmark'"
+                                    :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                                             selectedJobLogTab === 'benchmark'
+                                                 ? 'border-purple-500 text-purple-400'
+                                                 : 'border-transparent text-gray-400 hover:text-gray-300']">
+                                Benchmark Logs
+                            </button>
+                            <button @click="selectedJobLogTab = 'library'"
+                                    :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                                             selectedJobLogTab === 'library'
+                                                 ? 'border-purple-500 text-purple-400'
+                                                 : 'border-transparent text-gray-400 hover:text-gray-300']">
+                                Library Logs
+                            </button>
+                        </div>
+
+                        <!-- Benchmark Logs -->
+                        <div v-show="selectedJobLogTab === 'benchmark'" class="flex-1 overflow-y-auto p-6">
+                            <div class="bg-gray-900 rounded p-4 font-mono text-xs">
+                                <div v-if="selectedJobForLogs.logs && selectedJobForLogs.logs.length > 0">
+                                    <div v-for="(log, index) in selectedJobForLogs.logs" :key="index" class="text-gray-300 whitespace-pre-wrap">
+                                        {{ log }}
+                                    </div>
+                                </div>
+                                <div v-else class="text-gray-500 text-center py-8">
+                                    No benchmark logs available
                                 </div>
                             </div>
-                            <div v-else class="text-gray-500 text-center py-8">
-                                No logs available
+                        </div>
+
+                        <!-- Library Logs -->
+                        <div v-show="selectedJobLogTab === 'library'" class="flex-1 overflow-y-auto p-6">
+                            <div class="bg-gray-900 rounded p-4 font-mono text-xs">
+                                <div v-if="selectedJobForLogs.library_logs && selectedJobForLogs.library_logs.length > 0">
+                                    <div v-for="(log, index) in selectedJobForLogs.library_logs" :key="index" class="text-gray-300 whitespace-pre-wrap">
+                                        {{ log }}
+                                    </div>
+                                </div>
+                                <div v-else class="text-gray-500 text-center py-8">
+                                    No library logs available
+                                </div>
                             </div>
                         </div>
                     </div>

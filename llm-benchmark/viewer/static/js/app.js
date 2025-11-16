@@ -58,8 +58,11 @@ createApp({
             benchmarkLoading: false,
             benchmarkPolling: null,
             benchmarkLogs: [],
+            benchmarkLibraryLogs: [],
             benchmarkAutoScroll: true,
             benchmarkLogPopout: null,
+            showAdvancedLogs: false, // Toggle for showing library logs tab
+            activeLogTab: 'benchmark', // 'benchmark' or 'library'
             benchmarkProgress: {
                 current_model: null,
                 current_model_index: 0,
@@ -174,7 +177,8 @@ createApp({
             // Job Logs Modal
             showJobLogsModal: false,
             selectedJobForLogs: null,
-            jobLogsLoading: false
+            jobLogsLoading: false,
+            selectedJobLogTab: 'benchmark' // 'benchmark' or 'library'
         };
     },
 
@@ -1616,11 +1620,15 @@ createApp({
                     this.benchmarkJob = data.job;
                     this.benchmarkProgress = data.job.progress;
                     this.benchmarkLogs = data.job.logs || [];
+                    this.benchmarkLibraryLogs = data.job.library_logs || [];
 
                     // Auto-scroll logs to bottom (if enabled)
                     if (this.benchmarkAutoScroll) {
                         this.$nextTick(() => {
-                            const logContainer = document.querySelector('.benchmark-logs-container');
+                            // Auto-scroll the active tab
+                            const logContainer = this.activeLogTab === 'benchmark'
+                                ? document.querySelector('.benchmark-logs-container')
+                                : document.querySelector('.library-logs-container');
                             if (logContainer) {
                                 logContainer.scrollTop = logContainer.scrollHeight;
                             }
@@ -1736,7 +1744,8 @@ createApp({
                     status: this.benchmarkStatus,
                     job: this.benchmarkJob,
                     progress: this.benchmarkProgress,
-                    logs: this.benchmarkLogs
+                    logs: this.benchmarkLogs,
+                    libraryLogs: this.benchmarkLibraryLogs
                 }));
 
                 // Send data to popout window

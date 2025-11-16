@@ -50,3 +50,4 @@ temp/
 
 config.yaml
 llm-benchmark/old_docs/
+llm-benchmark/viewer/job_history.json

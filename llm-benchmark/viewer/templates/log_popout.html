@@ -62,14 +62,44 @@
             </div>
         </div>
 
-        <!-- Logs Container -->
-        <div ref="logContainer" class="flex-1 overflow-y-auto bg-black p-4">
+        <!-- Log Tabs -->
+        <div class="bg-gray-800 border-b border-gray-700 px-4 flex flex-shrink-0">
+            <button @click="activeLogTab = 'benchmark'"
+                    :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                             activeLogTab === 'benchmark'
+                                 ? 'border-purple-500 text-purple-400'
+                                 : 'border-transparent text-gray-400 hover:text-gray-300']">
+                Benchmark Logs
+            </button>
+            <button @click="activeLogTab = 'library'"
+                    :class="['px-4 py-2 text-sm font-medium transition border-b-2',
+                             activeLogTab === 'library'
+                                 ? 'border-purple-500 text-purple-400'
+                                 : 'border-transparent text-gray-400 hover:text-gray-300']">
+                Library Logs
+            </button>
+        </div>
+
+        <!-- Benchmark Logs Container -->
+        <div v-show="activeLogTab === 'benchmark'" ref="benchmarkLogContainer" class="flex-1 overflow-y-auto bg-black p-4">
             <div class="space-y-1">
                 <div v-for="(log, index) in logs" :key="index" class="text-gray-300 text-sm">
                     {{ log }}
                 </div>
                 <div v-if="logs.length === 0" class="text-gray-500 text-center py-8">
-                    Waiting for logs...
+                    Waiting for benchmark logs...
+                </div>
+            </div>
+        </div>
+
+        <!-- Library Logs Container -->
+        <div v-show="activeLogTab === 'library'" ref="libraryLogContainer" class="flex-1 overflow-y-auto bg-black p-4">
+            <div class="space-y-1">
+                <div v-for="(log, index) in libraryLogs" :key="index" class="text-gray-300 text-sm">
+                    {{ log }}
+                </div>
+                <div v-if="libraryLogs.length === 0" class="text-gray-500 text-center py-8">
+                    No library logs yet...
                 </div>
             </div>
         </div>
@@ -94,8 +124,10 @@
                         elapsed_seconds: 0
                     },
                     logs: [],
+                    libraryLogs: [],
                     autoScroll: true,
-                    polling: null
+                    polling: null,
+                    activeLogTab: 'benchmark' // 'benchmark' or 'library'
                 };
             },
             mounted() {
@@ -125,11 +157,14 @@
                         this.job = data.job;
                         this.progress = data.progress || this.progress;
                         this.logs = data.logs || [];
+                        this.libraryLogs = data.libraryLogs || [];
 
                         // Auto-scroll if enabled
                         if (this.autoScroll) {
                             this.$nextTick(() => {
-                                const container = this.$refs.logContainer;
+                                const container = this.activeLogTab === 'benchmark'
+                                    ? this.$refs.benchmarkLogContainer
+                                    : this.$refs.libraryLogContainer;
                                 if (container) {
                                     container.scrollTop = container.scrollHeight;
                                 }
@@ -147,7 +182,9 @@
                     this.autoScroll = !this.autoScroll;
                     if (this.autoScroll) {
                         this.$nextTick(() => {
-                            const container = this.$refs.logContainer;
+                            const container = this.activeLogTab === 'benchmark'
+                                ? this.$refs.benchmarkLogContainer
+                                : this.$refs.libraryLogContainer;
                             if (container) {
                                 container.scrollTop = container.scrollHeight;
                             }
@@ -172,11 +209,14 @@
                                 this.job = data.job;
                                 this.progress = data.job.progress;
                                 this.logs = data.job.logs || [];
+                                this.libraryLogs = data.job.library_logs || [];
 
                                 // Auto-scroll if enabled
                                 if (this.autoScroll) {
                                     this.$nextTick(() => {
-                                        const container = this.$refs.logContainer;
+                                        const container = this.activeLogTab === 'benchmark'
+                                            ? this.$refs.benchmarkLogContainer
+                                            : this.$refs.libraryLogContainer;
                                         if (container) {
                                             container.scrollTop = container.scrollHeight;
                                         }

@@ -4,6 +4,7 @@ Handles benchmark job state, persistence, and management.
 """
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, asdict
@@ -65,6 +66,7 @@ class BenchmarkJob:
             "config": self.config,
             "progress": self.progress.to_dict(),
             "logs": self.logs[-500:],  # Only return last 500 logs
+            "library_logs": self.library_logs[-500:],  # Only return last 500 library logs
             "run_id": self.run_id,
             "error": self.error,
             "started_at": self.started_at,
@@ -134,6 +136,7 @@ class BenchmarkJobManager:
                 config=config,
                 progress=progress,
                 logs=[],
+                library_logs=[],
                 started_at=datetime.now().isoformat()
             )
 
@@ -226,7 +229,7 @@ class BenchmarkJobManager:
             if not self.current_job:
                 return
 
-            timestamp = datetime.now().strftime("%H:%M:%S")
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
 
             # Log level symbols
             symbols = {
@@ -257,7 +260,7 @@ class BenchmarkJobManager:
             if not self.current_job:
                 return
 
-            timestamp = datetime.now().strftime("%H:%M:%S")
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
 
             # Log level symbols
             symbols = {
@@ -286,12 +289,43 @@ class BenchmarkJobManager:
             if len(self.current_job.logs) > self.max_logs:
                 self.current_job.logs = self.current_job.logs[-self.max_logs:]
 
+    def add_library_log(self, message: str, level: str = "debug"):
+        """
+        Add a library log entry to the current job.
+
+        Args:
+            message: Log message from the rotating library
+            level: Log level (debug, info, warning, error)
+        """
+        with self.lock:
+            if not self.current_job:
+                return
+
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
+
+            # Log level symbols
+            symbols = {
+                "debug": "🔍",
+                "info": "ℹ",
+                "warning": "⚠",
+                "error": "✗"
+            }
+            symbol = symbols.get(level, "ℹ")
+
+            log_entry = f"[{timestamp}] {symbol} {message}"
+            self.current_job.library_logs.append(log_entry)
+
+            # Keep only last N logs in memory
+            if len(self.current_job.library_logs) > self.max_logs:
+                self.current_job.library_logs = self.current_job.library_logs[-self.max_logs:]
+
     def _add_to_history(self, job: BenchmarkJob):
         """Add completed job to history with full logs and metadata"""
         history_entry = job.to_dict()
 
         # Store full logs for later inspection
         history_entry["logs"] = self.current_job.logs.copy()
+        history_entry["library_logs"] = self.current_job.library_logs.copy()
 
         # Add useful metadata summary
         history_entry["metadata"] = {
@@ -356,3 +390,36 @@ def get_job_manager() -> BenchmarkJobManager:
                 _job_manager_instance = BenchmarkJobManager()
 
     return _job_manager_instance
+
+
+class JobManagerLogHandler(logging.Handler):
+    """
+    Custom logging handler that forwards rotating library logs to the job manager.
+    """
+
+    def __init__(self, job_manager: BenchmarkJobManager):
+        super().__init__()
+        self.job_manager = job_manager
+
+    def emit(self, record):
+        """Emit a log record to the job manager"""
+        try:
+            # Map logging levels to our level strings
+            level_map = {
+                logging.DEBUG: "debug",
+                logging.INFO: "info",
+                logging.WARNING: "warning",
+                logging.ERROR: "error",
+                logging.CRITICAL: "error"
+            }
+            level = level_map.get(record.levelno, "debug")
+
+            # Format the message
+            message = record.getMessage()
+
+            # Add to job manager's library logs
+            self.job_manager.add_library_log(message, level=level)
+
+        except Exception:
+            # Don't let logging errors crash the application
+            self.handleError(record)

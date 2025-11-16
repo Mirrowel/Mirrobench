@@ -4,6 +4,7 @@ Wraps BenchmarkRunner for web execution with progress tracking.
 """
 
 import asyncio
+import logging
 import sys
 import threading
 import time
@@ -14,7 +15,7 @@ from datetime import datetime
 
 from lib.rotator_library.client import RotatingClient
 from src.runner import BenchmarkRunner
-from viewer.benchmark_job_manager import get_job_manager
+from viewer.benchmark_job_manager import get_job_manager, JobManagerLogHandler
 
 
 class ConsoleCapture:
@@ -185,6 +186,14 @@ class AsyncBenchmarkRunner:
                 code_formatting_instruction=code_formatting_instruction
             )
 
+            # Set up rotating library logging handler
+            library_logger = logging.getLogger('rotator_library')
+            library_handler = JobManagerLogHandler(job_manager)
+            library_handler.setLevel(logging.DEBUG)  # Capture all levels
+            library_logger.addHandler(library_handler)
+            library_logger.setLevel(logging.DEBUG)
+            library_logger.propagate = False  # Don't propagate to parent logger to avoid duplicates
+
             # Capture console output
             stdout_capture = ConsoleCapture(job_manager, level="info")
             stderr_capture = ConsoleCapture(job_manager, level="error")
@@ -321,14 +330,14 @@ class AsyncBenchmarkRunner:
                         # Get current cumulative values from job manager
                         current_job = job_manager.get_current_job()
                         if current_job:
-                            current_progress = current_job.progress
+                            current_progress = current_job['progress']
                             tracker.update(
                                 questions_completed=questions_completed,
                                 current_phase="generating_responses",
-                                cumulative_prompt_tokens=current_progress.cumulative_prompt_tokens + prompt_tokens,
-                                cumulative_completion_tokens=current_progress.cumulative_completion_tokens + completion_tokens,
-                                cumulative_reasoning_tokens=current_progress.cumulative_reasoning_tokens + reasoning_tokens,
-                                cumulative_cost=current_progress.cumulative_cost + cost
+                                cumulative_prompt_tokens=current_progress['cumulative_prompt_tokens'] + prompt_tokens,
+                                cumulative_completion_tokens=current_progress['cumulative_completion_tokens'] + completion_tokens,
+                                cumulative_reasoning_tokens=current_progress['cumulative_reasoning_tokens'] + reasoning_tokens,
+                                cumulative_cost=current_progress['cumulative_cost'] + cost
                             )
                         else:
                             tracker.update(
@@ -445,7 +454,7 @@ class AsyncBenchmarkRunner:
                 # Get final token stats before marking complete
                 current_job = job_manager.get_current_job()
                 if current_job:
-                    current_progress = current_job.progress
+                    current_progress = current_job['progress']
 
                     # Mark model as completed and reset token counters for next model
                     tracker.update(
@@ -453,24 +462,24 @@ class AsyncBenchmarkRunner:
                     )
 
                     # Log model completion summary with token breakdown
-                    total_tokens = (current_progress.cumulative_prompt_tokens +
-                                   current_progress.cumulative_completion_tokens +
-                                   current_progress.cumulative_reasoning_tokens)
+                    total_tokens = (current_progress['cumulative_prompt_tokens'] +
+                                   current_progress['cumulative_completion_tokens'] +
+                                   current_progress['cumulative_reasoning_tokens'])
 
                     summary_parts = [
                         f"✓ Model '{model}' completed",
-                        f"   ↳ Tokens: {total_tokens:,} ({current_progress.cumulative_prompt_tokens:,} prompt"
+                        f"   ↳ Tokens: {total_tokens:,} ({current_progress['cumulative_prompt_tokens']:,} prompt"
                     ]
 
-                    if current_progress.cumulative_completion_tokens > 0:
-                        summary_parts.append(f" • {current_progress.cumulative_completion_tokens:,} completion")
-                    if current_progress.cumulative_reasoning_tokens > 0:
-                        summary_parts.append(f" • {current_progress.cumulative_reasoning_tokens:,} reasoning")
+                    if current_progress['cumulative_completion_tokens'] > 0:
+                        summary_parts.append(f" • {current_progress['cumulative_completion_tokens']:,} completion")
+                    if current_progress['cumulative_reasoning_tokens'] > 0:
+                        summary_parts.append(f" • {current_progress['cumulative_reasoning_tokens']:,} reasoning")
 
                     summary_parts.append(")")
 
-                    if current_progress.cumulative_cost > 0:
-                        summary_parts.append(f"   ↳ Cost: ${current_progress.cumulative_cost:.3f}")
+                    if current_progress['cumulative_cost'] > 0:
+                        summary_parts.append(f"   ↳ Cost: ${current_progress['cumulative_cost']:.3f}")
 
                     job_manager.add_log(''.join(summary_parts), level="success")
 
@@ -528,6 +537,9 @@ class AsyncBenchmarkRunner:
                     await timer_task
                 except asyncio.CancelledError:
                     pass
+
+                # Clean up logging handler
+                library_logger.removeHandler(library_handler)
 
         except Exception as e:
             error_msg = str(e)
