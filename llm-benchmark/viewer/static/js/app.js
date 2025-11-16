@@ -14,7 +14,8 @@ createApp({
                 { id: 'individual', name: 'Individual Evaluation', icon: 'gauge' },
                 { id: 'comparative', name: 'Comparative Judge', icon: 'git-compare' },
                 { id: 'human', name: 'Human Judge', icon: 'user' },
-                { id: 'authors-choice', name: "Author's Choice", icon: 'star' }
+                { id: 'authors-choice', name: "Author's Choice", icon: 'star' },
+                { id: 'run-benchmark', name: 'Run Benchmark', icon: 'play-circle' }
             ],
 
             // UI State
@@ -46,6 +47,33 @@ createApp({
             // Author's Choice Data
             authorsChoiceRankings: [],
             authorsChoiceLoading: false,
+
+            // Run Benchmark Data
+            benchmarkStatus: 'idle', // idle, running, completed, failed, cancelled
+            benchmarkJob: null,
+            benchmarkHistory: [],
+            benchmarkLoading: false,
+            benchmarkPolling: null,
+            benchmarkLogs: [],
+            benchmarkProgress: {
+                current_model: null,
+                current_model_index: 0,
+                total_models: 0,
+                current_phase: 'initializing',
+                questions_completed: 0,
+                questions_total: 0,
+                models_completed: 0,
+                elapsed_seconds: 0
+            },
+            benchmarkConfig: {
+                models: [],
+                categories: [],
+                question_ids: [],
+                max_concurrent: 10,
+                provider_concurrency: {}
+            },
+            benchmarkConfigValid: true,
+            benchmarkConfigErrors: [],
 
             // Config Editor Data
             configContent: '',
@@ -370,6 +398,9 @@ createApp({
                     break;
                 case 'authors-choice':
                     await this.loadAuthorsChoice();
+                    break;
+                case 'run-benchmark':
+                    await this.loadBenchmarkPage();
                     break;
             }
         },
@@ -1417,6 +1448,237 @@ createApp({
                     this.availableCategories = [];
                 }
             }
+        },
+
+        // ====================================================================
+        // Run Benchmark Page
+        // ====================================================================
+
+        async loadBenchmarkPage() {
+            try {
+                // Load configuration to populate benchmark config
+                await this.loadBenchmarkConfig();
+
+                // Load job history
+                await this.loadBenchmarkHistory();
+
+                // Check current status
+                await this.pollBenchmarkStatus();
+
+                // Start polling if running
+                if (this.benchmarkStatus === 'running') {
+                    this.startBenchmarkPolling();
+                }
+            } catch (error) {
+                console.error('Error loading benchmark page:', error);
+                this.showToast('Failed to load benchmark page', 'error');
+            }
+        },
+
+        async loadBenchmarkConfig() {
+            try {
+                // Load config from server
+                const response = await fetch('/api/config');
+                const data = await response.json();
+
+                // Parse YAML
+                const config = jsyaml.load(data.content);
+
+                // Populate benchmark config from loaded config
+                this.benchmarkConfig = {
+                    models: config.models || [],
+                    categories: config.categories || [],
+                    question_ids: config.question_ids || [],
+                    max_concurrent: config.max_concurrent || 10,
+                    provider_concurrency: config.provider_concurrency || {}
+                };
+
+                // Validate config
+                this.validateBenchmarkConfig();
+            } catch (error) {
+                console.error('Error loading benchmark config:', error);
+                this.benchmarkConfigValid = false;
+                this.benchmarkConfigErrors = ['Failed to load configuration'];
+            }
+        },
+
+        validateBenchmarkConfig() {
+            const errors = [];
+
+            if (!this.benchmarkConfig.models || this.benchmarkConfig.models.length === 0) {
+                errors.push('At least one model must be configured');
+            }
+
+            this.benchmarkConfigErrors = errors;
+            this.benchmarkConfigValid = errors.length === 0;
+        },
+
+        async startBenchmark() {
+            try {
+                this.benchmarkLoading = true;
+
+                const response = await fetch('/api/benchmark/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.benchmarkConfig)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start benchmark');
+                }
+
+                const data = await response.json();
+                this.showToast('Benchmark started successfully', 'success');
+
+                // Start polling for status
+                this.startBenchmarkPolling();
+
+            } catch (error) {
+                console.error('Error starting benchmark:', error);
+                this.showToast(error.message, 'error');
+            } finally {
+                this.benchmarkLoading = false;
+            }
+        },
+
+        async stopBenchmark() {
+            try {
+                this.benchmarkLoading = true;
+
+                const response = await fetch('/api/benchmark/stop', {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to stop benchmark');
+                }
+
+                this.showToast('Benchmark stop requested', 'warning');
+
+                // Continue polling to see cancellation status
+            } catch (error) {
+                console.error('Error stopping benchmark:', error);
+                this.showToast(error.message, 'error');
+            } finally {
+                this.benchmarkLoading = false;
+            }
+        },
+
+        async pollBenchmarkStatus() {
+            try {
+                const response = await fetch('/api/benchmark/status');
+                const data = await response.json();
+
+                this.benchmarkStatus = data.status;
+
+                if (data.job) {
+                    this.benchmarkJob = data.job;
+                    this.benchmarkProgress = data.job.progress;
+                    this.benchmarkLogs = data.job.logs || [];
+
+                    // Auto-scroll logs to bottom
+                    this.$nextTick(() => {
+                        const logContainer = document.querySelector('.benchmark-logs-container');
+                        if (logContainer) {
+                            logContainer.scrollTop = logContainer.scrollHeight;
+                        }
+                    });
+                }
+
+                // If completed or failed, stop polling
+                if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+                    this.stopBenchmarkPolling();
+
+                    // Reload history
+                    await this.loadBenchmarkHistory();
+
+                    // Show notification
+                    if (data.status === 'completed') {
+                        this.showToast('Benchmark completed successfully!', 'success');
+                    } else if (data.status === 'failed') {
+                        this.showToast('Benchmark failed: ' + (data.job?.error || 'Unknown error'), 'error');
+                    } else if (data.status === 'cancelled') {
+                        this.showToast('Benchmark cancelled', 'warning');
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error polling benchmark status:', error);
+            }
+        },
+
+        startBenchmarkPolling() {
+            // Stop any existing polling
+            this.stopBenchmarkPolling();
+
+            // Poll every 2 seconds
+            this.benchmarkPolling = setInterval(() => {
+                this.pollBenchmarkStatus();
+            }, 2000);
+        },
+
+        stopBenchmarkPolling() {
+            if (this.benchmarkPolling) {
+                clearInterval(this.benchmarkPolling);
+                this.benchmarkPolling = null;
+            }
+        },
+
+        async loadBenchmarkHistory() {
+            try {
+                const response = await fetch('/api/benchmark/history?limit=10');
+                const data = await response.json();
+
+                this.benchmarkHistory = data.history || [];
+            } catch (error) {
+                console.error('Error loading benchmark history:', error);
+            }
+        },
+
+        formatDuration(seconds) {
+            if (!seconds) return '0s';
+
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+
+            if (hours > 0) {
+                return `${hours}h ${minutes}m ${secs}s`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        },
+
+        formatTimestamp(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            return date.toLocaleString();
+        },
+
+        getProgressPercentage() {
+            if (!this.benchmarkProgress.questions_total) return 0;
+            return Math.round((this.benchmarkProgress.questions_completed / this.benchmarkProgress.questions_total) * 100);
+        },
+
+        getStatusBadgeClass(status) {
+            const classes = {
+                'idle': 'bg-gray-600',
+                'running': 'bg-green-600',
+                'completed': 'bg-blue-600',
+                'failed': 'bg-red-600',
+                'cancelled': 'bg-yellow-600'
+            };
+            return classes[status] || 'bg-gray-600';
+        },
+
+        viewBenchmarkResults(runId) {
+            // Switch to individual evaluation page and select the run
+            this.currentPage = 'individual';
+            // The run should already be loaded, so it will appear in the dropdown
         },
 
         // ====================================================================

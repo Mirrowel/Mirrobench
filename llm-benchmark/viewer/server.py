@@ -1327,6 +1327,150 @@ async def cancel_comparative_judge_job(job_id: str):
 
 
 # ============================================================================
+# Benchmark Runner API Endpoints
+# ============================================================================
+
+from viewer.async_benchmark_runner import get_async_runner
+from viewer.benchmark_job_manager import get_job_manager
+
+
+class BenchmarkRequest(BaseModel):
+    """Request body for starting a benchmark run."""
+    models: List[str]
+    categories: Optional[List[str]] = None
+    question_ids: Optional[List[str]] = None
+    max_concurrent: int = 10
+    provider_concurrency: Optional[Dict[str, int]] = None
+
+
+@app.post("/api/benchmark/start")
+async def start_benchmark(request: BenchmarkRequest):
+    """Start a new benchmark run."""
+    try:
+        job_manager = get_job_manager()
+
+        # Check if already running
+        if job_manager.is_running():
+            raise HTTPException(status_code=400, detail="A benchmark is already running")
+
+        # Generate job ID
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        job_id = f"benchmark_{timestamp}"
+
+        # Load full config
+        if not config:
+            raise HTTPException(status_code=500, detail="Configuration not loaded")
+
+        # Build config dict for benchmark
+        benchmark_config = {
+            "models": request.models,
+            "categories": request.categories,
+            "question_ids": request.question_ids,
+            "max_concurrent": request.max_concurrent,
+            "provider_concurrency": request.provider_concurrency,
+            "judge_model": config.judge_model,
+            "questions_dir": config.questions_dir,
+            "results_dir": config.results_dir,
+            "model_configs": config.model_configs,
+            "code_formatting_instructions": config.code_formatting_instructions
+        }
+
+        # Get API keys
+        from collections import defaultdict
+        api_keys = defaultdict(list)
+        for key, value in os.environ.items():
+            if (key.endswith("_API_KEY") or "_API_KEY_" in key) and key != "PROXY_API_KEY":
+                parts = key.split("_API_KEY")
+                provider = parts[0].lower()
+                if provider not in api_keys:
+                    api_keys[provider] = []
+                api_keys[provider].append(value)
+
+        if not api_keys:
+            raise HTTPException(status_code=500, detail="No API keys configured")
+
+        # Create RotatingClient
+        from lib.rotator_library.client import RotatingClient
+        client_kwargs = {"api_keys": dict(api_keys)}
+        client_kwargs["max_retries"] = config.max_retries_per_key
+        client_kwargs["global_timeout"] = config.global_timeout
+        client = RotatingClient(**client_kwargs)
+
+        # Start benchmark in background
+        runner = get_async_runner()
+        await runner.start_benchmark(job_id, client, benchmark_config)
+
+        return {"job_id": job_id, "status": "started"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/benchmark/status")
+async def get_benchmark_status():
+    """Get status of the current benchmark run."""
+    try:
+        job_manager = get_job_manager()
+        job = job_manager.get_current_job()
+
+        if not job:
+            return {"status": "idle", "job": None}
+
+        return {"status": "running" if job_manager.is_running() else job["status"], "job": job}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/benchmark/stop")
+async def stop_benchmark():
+    """Stop the current benchmark run."""
+    try:
+        runner = get_async_runner()
+        runner.cancel()
+
+        return {"success": True, "message": "Benchmark cancellation requested"}
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/benchmark/history")
+async def get_benchmark_history(limit: int = 10):
+    """Get benchmark job history."""
+    try:
+        job_manager = get_job_manager()
+        history = job_manager.get_history(limit=limit)
+
+        return {"history": history}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/benchmark/jobs/{job_id}")
+async def get_benchmark_job(job_id: str):
+    """Get details of a specific benchmark job."""
+    try:
+        job_manager = get_job_manager()
+        job = job_manager.get_job_by_id(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        return job
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Human Ratings API Endpoints
 # ============================================================================
 
@@ -1710,7 +1854,7 @@ app.mount("/artifacts", StaticFiles(directory=str(artifacts_dir)), name="artifac
 def main():
     """Start the server."""
     print("\n" + "="*60)
-    print("🔴 MirroBench - LLM Benchmark Viewer")
+    print("MirroBench - LLM Benchmark Viewer")
     print("="*60)
     print("\nStarting server...")
     print("Open your browser to: http://localhost:8080")
