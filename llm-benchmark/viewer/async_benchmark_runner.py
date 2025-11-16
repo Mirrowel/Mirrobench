@@ -276,15 +276,21 @@ class AsyncBenchmarkRunner:
                                 filled = int(bar_length * progress_pct)
                                 bar = '▓' * filled + '░' * (bar_length - filled)
 
+                                # Calculate TPS (tokens per second)
+                                total_tokens = tokens + reasoning_tokens
+                                tps = total_tokens / elapsed if elapsed > 0 else 0
+
                                 # Build details string
                                 details = f"{tokens} tokens"
                                 if reasoning_tokens > 0:
                                     details += f", {reasoning_tokens} reasoning"
+                                details += f", {tps:.1f} TPS, {elapsed:.1f}s"
 
-                                # Update log (this replaces previous progress lines in UI)
-                                job_manager.add_log(
-                                    f"⟳ {question.id}: {bar} Generating... ({details}, {elapsed:.1f}s)",
-                                    level="info"
+                                # Update log (replaces previous progress line for this question)
+                                job_manager.update_or_add_log(
+                                    f"⟳ {question.id}: {bar} Generating... ({details})",
+                                    level="info",
+                                    update_pattern=f"⟳ {question.id}:"
                                 )
 
                             # Call the actual generation (without semaphore since we already have it)

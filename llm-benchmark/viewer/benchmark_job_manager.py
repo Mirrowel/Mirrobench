@@ -243,6 +243,48 @@ class BenchmarkJobManager:
             if len(self.current_job.logs) > self.max_logs:
                 self.current_job.logs = self.current_job.logs[-self.max_logs:]
 
+    def update_or_add_log(self, message: str, level: str = "info", update_pattern: str = None):
+        """
+        Update the last log entry matching a pattern, or add a new one if not found.
+
+        Args:
+            message: Log message
+            level: Log level (info, success, warning, error)
+            update_pattern: Pattern to match in existing logs (e.g., question ID for streaming updates)
+        """
+        with self.lock:
+            if not self.current_job:
+                return
+
+            timestamp = datetime.now().strftime("%H:%M:%S")
+
+            # Log level symbols
+            symbols = {
+                "info": "ℹ",
+                "success": "✓",
+                "warning": "⚠",
+                "error": "✗"
+            }
+            symbol = symbols.get(level, "ℹ")
+
+            log_entry = f"[{timestamp}] {symbol} {message}"
+
+            # If update_pattern provided, try to find and update existing log
+            if update_pattern and self.current_job.logs:
+                # Search backwards for the most recent matching log
+                for i in range(len(self.current_job.logs) - 1, -1, -1):
+                    if update_pattern in self.current_job.logs[i]:
+                        # Update the existing log entry
+                        self.current_job.logs[i] = log_entry
+                        return
+
+            # If no match found or no pattern provided, append as new log
+            self.current_job.logs.append(log_entry)
+
+            # Keep only last N logs in memory
+            if len(self.current_job.logs) > self.max_logs:
+                self.current_job.logs = self.current_job.logs[-self.max_logs:]
+
     def _add_to_history(self, job: BenchmarkJob):
         """Add completed job to history"""
         history_entry = job.to_dict()
