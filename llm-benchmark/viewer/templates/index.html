@@ -751,7 +751,7 @@
                                      class="benchmark-logs-container bg-black rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm resize-y min-h-[420px] max-h-[800px]"
                                      style="height: 420px;">
                                     <div class="space-y-1">
-                                        <div v-for="(log, index) in benchmarkLogs" :key="index" class="text-gray-300">
+                                        <div v-for="(log, index) in benchmarkLogs" :key="log" class="text-gray-300">
                                             {{ log }}
                                         </div>
                                         <div v-if="benchmarkLogs.length === 0" class="text-gray-500">
@@ -765,7 +765,7 @@
                                      class="library-logs-container bg-black rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm resize-y min-h-[420px] max-h-[800px]"
                                      style="height: 420px;">
                                     <div class="space-y-1">
-                                        <div v-for="(log, index) in benchmarkLibraryLogs" :key="index" class="text-gray-300">
+                                        <div v-for="(log, index) in benchmarkLibraryLogs" :key="log" class="text-gray-300">
                                             {{ log }}
                                         </div>
                                         <div v-if="benchmarkLibraryLogs.length === 0" class="text-gray-500">
@@ -1825,7 +1825,7 @@
                         <div v-show="selectedJobLogTab === 'benchmark'" class="flex-1 overflow-y-auto p-6">
                             <div class="bg-gray-900 rounded p-4 font-mono text-xs">
                                 <div v-if="selectedJobForLogs.logs && selectedJobForLogs.logs.length > 0">
-                                    <div v-for="(log, index) in selectedJobForLogs.logs" :key="index" class="text-gray-300 whitespace-pre-wrap">
+                                    <div v-for="(log, index) in selectedJobForLogs.logs" :key="log" class="text-gray-300 whitespace-pre-wrap">
                                         {{ log }}
                                     </div>
                                 </div>
@@ -1839,7 +1839,7 @@
                         <div v-show="selectedJobLogTab === 'library'" class="flex-1 overflow-y-auto p-6">
                             <div class="bg-gray-900 rounded p-4 font-mono text-xs">
                                 <div v-if="selectedJobForLogs.library_logs && selectedJobForLogs.library_logs.length > 0">
-                                    <div v-for="(log, index) in selectedJobForLogs.library_logs" :key="index" class="text-gray-300 whitespace-pre-wrap">
+                                    <div v-for="(log, index) in selectedJobForLogs.library_logs" :key="log" class="text-gray-300 whitespace-pre-wrap">
                                         {{ log }}
                                     </div>
                                 </div>

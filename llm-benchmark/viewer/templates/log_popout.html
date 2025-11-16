@@ -82,7 +82,7 @@
         <!-- Benchmark Logs Container -->
         <div v-show="activeLogTab === 'benchmark'" ref="benchmarkLogContainer" class="flex-1 overflow-y-auto bg-black p-4">
             <div class="space-y-1">
-                <div v-for="(log, index) in logs" :key="index" class="text-gray-300 text-sm">
+                <div v-for="(log, index) in logs" :key="log" class="text-gray-300 text-sm">
                     {{ log }}
                 </div>
                 <div v-if="logs.length === 0" class="text-gray-500 text-center py-8">
@@ -94,7 +94,7 @@
         <!-- Library Logs Container -->
         <div v-show="activeLogTab === 'library'" ref="libraryLogContainer" class="flex-1 overflow-y-auto bg-black p-4">
             <div class="space-y-1">
-                <div v-for="(log, index) in libraryLogs" :key="index" class="text-gray-300 text-sm">
+                <div v-for="(log, index) in libraryLogs" :key="log" class="text-gray-300 text-sm">
                     {{ log }}
                 </div>
                 <div v-if="libraryLogs.length === 0" class="text-gray-500 text-center py-8">
