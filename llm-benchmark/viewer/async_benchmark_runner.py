@@ -353,9 +353,14 @@ class AsyncBenchmarkRunner:
                     # Log AFTER completion
                     if question:
                         if result.error:
-                            job_manager.add_log(
-                                f"[{questions_completed}/{questions_total}] ✗ {question.id} - Error: {result.error}",
-                                level="error"
+                            # Show empty progress bar for errors
+                            bar = '░' * 10
+
+                            # Update the existing progress line to show error
+                            job_manager.update_or_add_log(
+                                f"⟳ {question.id}: {bar} Error: {result.error}",
+                                level="error",
+                                update_pattern=f"⟳ {question.id}:"
                             )
                         else:
                             # Show more detail about the response
@@ -363,16 +368,24 @@ class AsyncBenchmarkRunner:
                             tokens = result.metrics.get('completion_tokens', 0) if result.metrics else 0
                             reasoning_tokens = result.metrics.get('reasoning_tokens', 0) if result.metrics else 0
 
-                            details = f"{elapsed:.1f}s"
-                            if ttft > 0:
-                                details += f", TTFT: {ttft:.2f}s"
-                            details += f", {tokens} tokens"
-                            if reasoning_tokens > 0:
-                                details += f" ({reasoning_tokens} reasoning)"
+                            # Create full progress bar (10/10 blocks) to show completion
+                            bar = '▓' * 10
 
-                            job_manager.add_log(
-                                f"[{questions_completed}/{questions_total}] ✓ {question.id} - Generated ({details})",
-                                level="success"
+                            # Calculate TPS
+                            total_tokens = tokens + reasoning_tokens
+                            tps = total_tokens / elapsed if elapsed > 0 else 0
+
+                            # Build details string in same format as progress updates
+                            details = f"{tokens} tokens"
+                            if reasoning_tokens > 0:
+                                details += f", {reasoning_tokens} reasoning"
+                            details += f", {tps:.1f} TPS, {elapsed:.1f}s"
+
+                            # Update the existing progress line to show completion
+                            job_manager.update_or_add_log(
+                                f"⟳ {question.id}: {bar} Completed ({details})",
+                                level="success",
+                                update_pattern=f"⟳ {question.id}:"
                             )
 
                     # Check for cancellation
