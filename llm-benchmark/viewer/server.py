@@ -496,7 +496,12 @@ async def re_evaluate_response(run_id: str, model_name: str, question_id: str):
             evaluations_run.append("code_execution")
 
         # Always run LLM judge (with code execution results if available)
-        judge_eval = await llm_judge.evaluate(question, response, code_execution_result=code_eval)
+        judge_eval = await llm_judge.evaluate(
+            question,
+            response,
+            code_execution_result=code_eval,
+            results_dir=results_manager.current_run_dir
+        )
         judge_eval.evaluation_type = "llm_judge"
         results_manager.save_evaluation(judge_eval)
         evaluations_run.append("llm_judge")

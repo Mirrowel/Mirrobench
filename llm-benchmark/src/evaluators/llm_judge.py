@@ -2,7 +2,9 @@
 LLM-as-judge evaluator using a powerful model to evaluate responses.
 """
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any
 from lib.rotator_library.client import RotatingClient
 from src.schemas import Question, ModelResponse, Evaluation
@@ -21,11 +23,39 @@ class LLMJudgeEvaluator:
         self.judge_model = judge_model
         self.model_options = model_options or {}
 
+    def _save_judge_log(
+        self,
+        question_id: str,
+        log_type: str,
+        data: Dict[str, Any],
+        results_dir: Optional[Path] = None,
+        model_name: Optional[str] = None
+    ) -> None:
+        """Save judge request or response log to file."""
+        if not results_dir or not model_name:
+            return  # Skip logging if not configured
+
+        try:
+            # Create judge_logs directory
+            # results_dir/evaluations/{model}/judge_logs/
+            sanitized_model = model_name.replace('/', '_')
+            log_dir = results_dir / "evaluations" / sanitized_model / "judge_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save log file
+            log_file = log_dir / f"{question_id}_{log_type}.json"
+            with open(log_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            # Don't fail evaluation if logging fails
+            print(f"Warning: Failed to save judge log: {e}")
+
     async def evaluate(
         self,
         question: Question,
         response: ModelResponse,
-        code_execution_result: Optional[Evaluation] = None
+        code_execution_result: Optional[Evaluation] = None,
+        results_dir: Optional[Path] = None
     ) -> Evaluation:
         """
         Evaluate a model response using an LLM judge.
@@ -72,6 +102,22 @@ class LLMJudgeEvaluator:
             if self.model_options:
                 kwargs.update(self.model_options)
 
+            # Log the request before calling the judge
+            self._save_judge_log(
+                question_id=question.id,
+                log_type="request",
+                data={
+                    "timestamp": datetime.now().isoformat(),
+                    "question_id": question.id,
+                    "model_name": response.model_name,
+                    "judge_model": self.judge_model,
+                    "request": kwargs,
+                    "has_code_execution_result": code_execution_result is not None
+                },
+                results_dir=results_dir,
+                model_name=response.model_name
+            )
+
             # Call the judge model (non-streaming for evaluation)
             judge_response = await self.client.acompletion(**kwargs)
 
@@ -115,6 +161,42 @@ class LLMJudgeEvaluator:
                 if finish_reason == 'length':
                     was_truncated = True
                     reasoning = f"[TRUNCATED] {reasoning}"
+
+            # Log the response after receiving it
+            # Convert judge_response to serializable format
+            response_data = {
+                "timestamp": datetime.now().isoformat(),
+                "question_id": question.id,
+                "model_name": response.model_name,
+                "judge_model": self.judge_model,
+                "judge_text": judge_text,
+                "parsed_score": score,
+                "parsed_passed": passed,
+                "parsed_reasoning": reasoning,
+                "was_truncated": was_truncated
+            }
+
+            # Try to extract usage information if available
+            if hasattr(judge_response, 'usage'):
+                response_data["usage"] = {
+                    "prompt_tokens": getattr(judge_response.usage, 'prompt_tokens', None),
+                    "completion_tokens": getattr(judge_response.usage, 'completion_tokens', None),
+                    "total_tokens": getattr(judge_response.usage, 'total_tokens', None)
+                }
+            elif isinstance(judge_response, dict) and 'usage' in judge_response:
+                response_data["usage"] = judge_response['usage']
+
+            # Add finish reason if available
+            if hasattr(judge_response, 'choices') and len(judge_response.choices) > 0:
+                response_data["finish_reason"] = getattr(judge_response.choices[0], 'finish_reason', None)
+
+            self._save_judge_log(
+                question_id=question.id,
+                log_type="response",
+                data=response_data,
+                results_dir=results_dir,
+                model_name=response.model_name
+            )
 
             return Evaluation(
                 question_id=question.id,

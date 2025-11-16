@@ -759,7 +759,12 @@ class BenchmarkRunner:
 
             # Step 2: Run LLM judge with code execution results
             # Pass code_eval to judge so it can see execution failures
-            judge_eval = await self.llm_judge.evaluate(question, response, code_execution_result=code_eval)
+            judge_eval = await self.llm_judge.evaluate(
+                question,
+                response,
+                code_execution_result=code_eval,
+                results_dir=self.results_manager.current_run_dir
+            )
             judge_eval.evaluation_type = "llm_judge"  # Mark as judge evaluation
             self.results_manager.save_evaluation(judge_eval)
 
@@ -802,7 +807,11 @@ class BenchmarkRunner:
             )
         else:
             # Default to LLM judge (for "llm_judge" and any other types)
-            evaluation = await self.llm_judge.evaluate(question, response)
+            evaluation = await self.llm_judge.evaluate(
+                question,
+                response,
+                results_dir=self.results_manager.current_run_dir
+            )
 
         # Save evaluation
         self.results_manager.save_evaluation(evaluation)
