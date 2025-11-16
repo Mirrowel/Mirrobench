@@ -318,16 +318,23 @@ class AsyncBenchmarkRunner:
                         reasoning_tokens = result.metrics.get('reasoning_tokens', 0)
                         cost = result.metrics.get('estimated_cost', 0)
 
-                        # Get current cumulative values from tracker
-                        current_state = tracker.get_state()
-                        tracker.update(
-                            questions_completed=questions_completed,
-                            current_phase="generating_responses",
-                            cumulative_prompt_tokens=current_state.cumulative_prompt_tokens + prompt_tokens,
-                            cumulative_completion_tokens=current_state.cumulative_completion_tokens + completion_tokens,
-                            cumulative_reasoning_tokens=current_state.cumulative_reasoning_tokens + reasoning_tokens,
-                            cumulative_cost=current_state.cumulative_cost + cost
-                        )
+                        # Get current cumulative values from job manager
+                        current_job = job_manager.get_current_job()
+                        if current_job:
+                            current_progress = current_job.progress
+                            tracker.update(
+                                questions_completed=questions_completed,
+                                current_phase="generating_responses",
+                                cumulative_prompt_tokens=current_progress.cumulative_prompt_tokens + prompt_tokens,
+                                cumulative_completion_tokens=current_progress.cumulative_completion_tokens + completion_tokens,
+                                cumulative_reasoning_tokens=current_progress.cumulative_reasoning_tokens + reasoning_tokens,
+                                cumulative_cost=current_progress.cumulative_cost + cost
+                            )
+                        else:
+                            tracker.update(
+                                questions_completed=questions_completed,
+                                current_phase="generating_responses"
+                            )
                     else:
                         tracker.update(
                             questions_completed=questions_completed,
@@ -436,42 +443,49 @@ class AsyncBenchmarkRunner:
                 runner._evaluate_response_with_semaphore = original_evaluate
 
                 # Get final token stats before marking complete
-                current_state = tracker.get_state()
+                current_job = job_manager.get_current_job()
+                if current_job:
+                    current_progress = current_job.progress
 
-                # Mark model as completed and reset token counters for next model
-                tracker.update(
-                    models_completed=current_index + 1
-                )
+                    # Mark model as completed and reset token counters for next model
+                    tracker.update(
+                        models_completed=current_index + 1
+                    )
 
-                # Log model completion summary with token breakdown
-                total_tokens = (current_state.cumulative_prompt_tokens +
-                               current_state.cumulative_completion_tokens +
-                               current_state.cumulative_reasoning_tokens)
+                    # Log model completion summary with token breakdown
+                    total_tokens = (current_progress.cumulative_prompt_tokens +
+                                   current_progress.cumulative_completion_tokens +
+                                   current_progress.cumulative_reasoning_tokens)
 
-                summary_parts = [
-                    f"✓ Model '{model}' completed",
-                    f"   ↳ Tokens: {total_tokens:,} ({current_state.cumulative_prompt_tokens:,} prompt"
-                ]
+                    summary_parts = [
+                        f"✓ Model '{model}' completed",
+                        f"   ↳ Tokens: {total_tokens:,} ({current_progress.cumulative_prompt_tokens:,} prompt"
+                    ]
 
-                if current_state.cumulative_completion_tokens > 0:
-                    summary_parts.append(f" • {current_state.cumulative_completion_tokens:,} completion")
-                if current_state.cumulative_reasoning_tokens > 0:
-                    summary_parts.append(f" • {current_state.cumulative_reasoning_tokens:,} reasoning")
+                    if current_progress.cumulative_completion_tokens > 0:
+                        summary_parts.append(f" • {current_progress.cumulative_completion_tokens:,} completion")
+                    if current_progress.cumulative_reasoning_tokens > 0:
+                        summary_parts.append(f" • {current_progress.cumulative_reasoning_tokens:,} reasoning")
 
-                summary_parts.append(")")
+                    summary_parts.append(")")
 
-                if current_state.cumulative_cost > 0:
-                    summary_parts.append(f"   ↳ Cost: ${current_state.cumulative_cost:.3f}")
+                    if current_progress.cumulative_cost > 0:
+                        summary_parts.append(f"   ↳ Cost: ${current_progress.cumulative_cost:.3f}")
 
-                job_manager.add_log(''.join(summary_parts), level="success")
+                    job_manager.add_log(''.join(summary_parts), level="success")
 
-                # Reset token counters for next model
-                tracker.update(
-                    cumulative_prompt_tokens=0,
-                    cumulative_completion_tokens=0,
-                    cumulative_reasoning_tokens=0,
-                    cumulative_cost=0.0
-                )
+                    # Reset token counters for next model
+                    tracker.update(
+                        cumulative_prompt_tokens=0,
+                        cumulative_completion_tokens=0,
+                        cumulative_reasoning_tokens=0,
+                        cumulative_cost=0.0
+                    )
+                else:
+                    # Just mark model as completed if no job found
+                    tracker.update(
+                        models_completed=current_index + 1
+                    )
 
                 return result
 

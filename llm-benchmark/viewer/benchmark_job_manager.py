@@ -52,6 +52,7 @@ class BenchmarkJob:
     config: Dict[str, Any]
     progress: JobProgress
     logs: List[str]
+    library_logs: List[str]
     run_id: Optional[str] = None
     error: Optional[str] = None
     started_at: Optional[str] = None
@@ -286,14 +287,23 @@ class BenchmarkJobManager:
                 self.current_job.logs = self.current_job.logs[-self.max_logs:]
 
     def _add_to_history(self, job: BenchmarkJob):
-        """Add completed job to history"""
+        """Add completed job to history with full logs and metadata"""
         history_entry = job.to_dict()
 
-        # Don't store all logs in history, just summary
-        history_entry["logs"] = [
-            self.current_job.logs[0] if self.current_job.logs else "",  # First log
-            self.current_job.logs[-1] if self.current_job.logs else ""  # Last log
-        ]
+        # Store full logs for later inspection
+        history_entry["logs"] = self.current_job.logs.copy()
+
+        # Add useful metadata summary
+        history_entry["metadata"] = {
+            "models_tested": job.config.get("models", []),
+            "total_models": job.progress.total_models,
+            "total_questions": job.progress.questions_total,
+            "questions_completed": job.progress.questions_completed,
+            "models_completed": job.progress.models_completed,
+            "duration_seconds": job.progress.elapsed_seconds,
+            "categories": job.config.get("categories", []),
+            "max_concurrent": job.config.get("max_concurrent", 10),
+        }
 
         self.job_history.insert(0, history_entry)  # Most recent first
 

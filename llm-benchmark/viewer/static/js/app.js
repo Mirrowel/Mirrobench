@@ -169,7 +169,12 @@ createApp({
             questionIdsText: '',
 
             // JSON validation errors
-            jsonErrors: {}
+            jsonErrors: {},
+
+            // Job Logs Modal
+            showJobLogsModal: false,
+            selectedJobForLogs: null,
+            jobLogsLoading: false
         };
     },
 
@@ -1795,6 +1800,28 @@ createApp({
             // Switch to individual evaluation page and select the run
             this.currentPage = 'individual';
             // The run should already be loaded, so it will appear in the dropdown
+        },
+
+        async viewJobLogs(jobId) {
+            this.jobLogsLoading = true;
+            this.showJobLogsModal = true;
+
+            try {
+                const response = await fetch(`/api/benchmark/jobs/${jobId}`);
+                const data = await response.json();
+                this.selectedJobForLogs = data;
+            } catch (error) {
+                console.error('Error loading job logs:', error);
+                this.showToast('Failed to load job logs', 'error');
+                this.showJobLogsModal = false;
+            } finally {
+                this.jobLogsLoading = false;
+            }
+        },
+
+        closeJobLogsModal() {
+            this.showJobLogsModal = false;
+            this.selectedJobForLogs = null;
         },
 
         // ====================================================================
