@@ -529,6 +529,12 @@ class BenchmarkRunner:
             completion_tokens = (
                 usage_data.get("completion_tokens", 0) if usage_data else 0
             )
+
+            # Extract reasoning tokens from completion_tokens_details
+            reasoning_tokens = 0
+            if usage_data and "completion_tokens_details" in usage_data:
+                reasoning_tokens = usage_data.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+
             total_tokens = (
                 usage_data.get("total_tokens", prompt_tokens + completion_tokens)
                 if usage_data
@@ -551,6 +557,7 @@ class BenchmarkRunner:
                 "tokens_per_second": tokens_per_second,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "reasoning_tokens": reasoning_tokens,
                 "total_tokens": total_tokens,
                 "estimated_cost": estimated_cost,
             }
