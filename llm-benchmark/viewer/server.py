@@ -1372,7 +1372,10 @@ async def start_benchmark(request: BenchmarkRequest):
             "questions_dir": config.questions_dir,
             "results_dir": config.results_dir,
             "model_configs": config.model_configs,
-            "code_formatting_instructions": config.code_formatting_instructions
+            "code_formatting_instructions": {
+                "enabled": config.code_formatting_enabled,
+                "instruction": config.code_formatting_instruction
+            }
         }
 
         # Get API keys
