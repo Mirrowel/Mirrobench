@@ -139,9 +139,9 @@ runs:
 
         # --- FINALIZATION ---
         echo "$CONFIG" > ~/.config/opencode/opencode.json
-        echo "--- Generated OpenCode Configuration ---"
-        jq . ~/.config/opencode/opencode.json
-        echo "----------------------------------------"
+        # echo "--- Generated OpenCode Configuration ---"
+        # jq . ~/.config/opencode/opencode.json
+        # echo "----------------------------------------"
         echo "Successfully generated OpenCode configuration."
 
     - name: Check for Python requirements file
