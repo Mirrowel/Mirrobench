@@ -395,11 +395,11 @@ async def get_leaderboard(run_id: str):
 
 
 @app.get("/api/runs/{run_id}/models/{model_name:path}/questions/{question_id}")
-async def get_response(run_id: str, model_name: str, question_id: str, use_fixed: bool = False, version: Optional[str] = None):
-    """Get a specific response with all evaluations, supports version parameter."""
+async def get_response(run_id: str, model_name: str, question_id: str, use_fixed: bool = False, instance_id: Optional[str] = None):
+    """Get a specific response with all evaluations, supports instance_id parameter."""
     try:
-        # Get the response (original, fixed, or specific version)
-        response = results_manager.get_response(run_id, model_name, question_id, use_fixed=use_fixed, version=version)
+        # Get the response (original, fixed, or specific instance)
+        response = results_manager.get_response(run_id, model_name, question_id, use_fixed=use_fixed, instance_id=instance_id)
         if not response:
             raise HTTPException(status_code=404, detail="Response not found")
 
@@ -711,6 +711,10 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str, co
             'tool_validator': ToolCallValidator()
         }
 
+        # Determine whether to replace current instance
+        # If there's an error, always replace; otherwise, respect user's choice
+        should_replace = has_error or confirm_replace
+
         # Call regeneration service
         new_response, evaluation = await regenerate_service(
             run_id=run_id,
@@ -720,7 +724,7 @@ async def regenerate_response(run_id: str, model_name: str, question_id: str, co
             client=client,
             results_manager=results_manager,
             evaluators=evaluators,
-            replace_current=True,  # Always replace current
+            replace_current=should_replace,
             model_options=config.get_model_options(model_name) if config else None
         )
 
@@ -798,7 +802,14 @@ async def set_current_instance(run_id: str, model_name: str, question_id: str, r
         results_manager.set_current_instance(run_id, model_name, question_id, request.instance_id)
 
         # Trigger leaderboard recalculation
-        results_manager.calculate_and_save_scores()
+        # Load the run to get categories and questions
+        run = results_manager.get_run(run_id)
+        if run:
+            # Get all questions for the categories in this run
+            questions = [q for q in question_loader.questions.values() if q.category in run.categories]
+            results_manager.current_run_dir = results_manager.results_dir / run_id
+            results_manager.current_run = run
+            results_manager.calculate_and_save_scores(questions)
 
         return {
             "success": True,

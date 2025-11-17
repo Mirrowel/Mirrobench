@@ -4,6 +4,7 @@ Response regeneration service.
 Handles regenerating responses for questions, creating new instances and evaluating them.
 """
 import asyncio
+import logging
 from typing import Optional
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,8 @@ from pathlib import Path
 from src.schemas import ModelResponse, Evaluation, Question
 from src.results_manager import ResultsManager
 from src.rotator_client import RotatingClient
+
+logger = logging.getLogger(__name__)
 
 
 async def regenerate_response(
@@ -22,7 +25,8 @@ async def regenerate_response(
     results_manager: ResultsManager,
     evaluators: dict,
     replace_current: bool = True,
-    model_options: Optional[dict] = None
+    model_options: Optional[dict] = None,
+    max_instances: int = 5
 ) -> tuple[ModelResponse, Evaluation]:
     """
     Regenerate a response for a specific question.
@@ -37,6 +41,7 @@ async def regenerate_response(
         evaluators: Dict of evaluators (llm_judge, code_executor, etc.)
         replace_current: If True, replaces current instance (default)
         model_options: Optional model-specific options
+        max_instances: Maximum number of instances allowed per question (default: 5)
 
     Returns:
         tuple: (new_response, evaluation)
@@ -50,10 +55,10 @@ async def regenerate_response(
         current_response = results_manager.get_response(run_id, model_name, question_id)
         has_error = current_response.error is not None if current_response else False
 
-    # Check instance count (enforce max 5)
+    # Check instance count (enforce max limit)
     instances = results_manager.list_instances(run_id, model_name, question_id)
-    if len(instances) >= 5 and not (has_error and replace_current):
-        raise ValueError("Maximum of 5 instances reached. Delete an instance before regenerating.")
+    if len(instances) >= max_instances and not (has_error and replace_current):
+        raise ValueError(f"Maximum of {max_instances} instances reached. Delete an instance before regenerating.")
 
     # Generate new response
     from src.runner import BenchmarkRunner
@@ -67,9 +72,13 @@ async def regenerate_response(
     # Create minimal runner for response generation
     runner = BenchmarkRunner(
         client=client,
-        results_manager=results_manager,
+        results_dir=str(results_manager.results_dir),
         judge_model=run.judge_model or "anthropic/claude-3-5-sonnet-20241022"
     )
+
+    # Use the existing results_manager instance instead of the one created by BenchmarkRunner
+    # This ensures we maintain the same state and avoid creating duplicate instances
+    runner.results_manager = results_manager
 
     # Set the current run context
     runner.results_manager.current_run = run
@@ -94,9 +103,12 @@ async def regenerate_response(
         try:
             # Delete old instance (this also deletes its evaluations)
             results_manager.delete_instance(run_id, model_name, question_id, current_instance_id)
-        except ValueError:
+        except ValueError as e:
             # Old instance might have already been deleted or set as current
-            pass
+            logger.warning(
+                "Could not delete old instance %s for %s/%s: %s",
+                current_instance_id, model_name, question_id, e
+            )
 
     # Evaluate the new response based on question type
     if question.evaluation_type == "code_execution":

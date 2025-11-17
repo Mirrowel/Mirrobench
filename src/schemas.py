@@ -41,7 +41,7 @@ class ModelResponse(BaseModel):
     error: Optional[str] = None
     # Instance management fields
     instance_id: str  # ISO timestamp identifying this instance
-    instance_type: Literal["original", "regenerated"] = "original"
+    instance_type: Literal["original", "regenerated", "fixed"] = "original"
     replaces: Optional[str] = None  # instance_id of replaced instance (if any)
 
 

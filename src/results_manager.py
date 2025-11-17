@@ -2,12 +2,14 @@
 Results manager for saving and retrieving benchmark results.
 """
 import json
-import os
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 from collections import defaultdict
 from src.schemas import ModelResponse, Evaluation, BenchmarkRun, LeaderboardEntry
+
+logger = logging.getLogger(__name__)
 
 
 class ResultsManager:
@@ -75,7 +77,10 @@ class ResultsManager:
 
         # Verify instance_id is set
         if not hasattr(response, 'instance_id') or not response.instance_id:
-            raise ValueError("Response must have instance_id set")
+            raise ValueError(
+                f"Response must have instance_id set. Model: {response.model_name}, "
+                f"Question: {response.question_id}. Use ResultsManager._generate_instance_id() to create one."
+            )
 
         # Create model directory if it doesn't exist
         model_dir = self.current_run_dir / "responses" / self._sanitize_name(response.model_name)
@@ -115,7 +120,10 @@ class ResultsManager:
 
         # Verify instance_id is set
         if not hasattr(evaluation, 'instance_id') or not evaluation.instance_id:
-            raise ValueError("Evaluation must have instance_id set")
+            raise ValueError(
+                f"Evaluation must have instance_id set. Model: {evaluation.model_name}, "
+                f"Question: {evaluation.question_id}. Ensure the evaluation is created from a response with instance_id."
+            )
 
         # Create evaluation directory structure: evaluations/{model}/{question_id}/{instance_id}/
         model_dir = self.current_run_dir / "evaluations" / self._sanitize_name(evaluation.model_name)
@@ -166,6 +174,12 @@ class ResultsManager:
                     )
 
                     if not current_instance_id:
+                        # No current instance found - skip this question for scoring
+                        # This can happen if the question directory exists but has no valid instances
+                        logger.warning(
+                            "No current instance found for %s/%s. Skipping question in score calculation.",
+                            model_name, question_id
+                        )
                         continue
 
                     # Load response for metrics
@@ -181,7 +195,7 @@ class ResultsManager:
                     )
                     evaluations.extend(instance_evals)
 
-                except Exception as e:
+                except (OSError, json.JSONDecodeError, KeyError, ValueError):
                     # Skip questions that can't be loaded
                     continue
 
@@ -308,7 +322,7 @@ class ResultsManager:
                 with open(instance_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     return ModelResponse(**data)
-            except Exception:
+            except (OSError, json.JSONDecodeError, KeyError, ValueError):
                 # If instance file doesn't have required fields, skip
                 pass
 
@@ -753,7 +767,7 @@ class ResultsManager:
                     data = json.load(f)
                     if 'instance_id' in data:
                         return data['instance_id']
-            except:
+            except (OSError, json.JSONDecodeError, KeyError):
                 continue
 
         return None
@@ -845,7 +859,7 @@ class ResultsManager:
                         'evaluations': evaluations,
                         'metrics': data.get('metrics', {})
                     })
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError):
                 # Skip files that can't be loaded
                 continue
 
@@ -856,7 +870,7 @@ class ResultsManager:
     def delete_instance(self, run_id: str, model_name: str, question_id: str, instance_id: str):
         """
         Delete a response instance and all its evaluations.
-        Cannot delete the current instance.
+        Cannot delete the current instance or the last remaining instance.
 
         Args:
             run_id: The benchmark run ID
@@ -868,6 +882,11 @@ class ResultsManager:
         current_instance_id = self.get_current_instance(run_id, model_name, question_id)
         if instance_id == current_instance_id:
             raise ValueError("Cannot delete the current instance. Set a different instance as current first.")
+
+        # Ensure at least one instance remains
+        instances = self.list_instances(run_id, model_name, question_id)
+        if len(instances) <= 1:
+            raise ValueError("Cannot delete the last remaining instance. At least one instance must be kept.")
 
         # Delete response instance file
         base_path = self.results_dir / run_id / "responses" / self._sanitize_name(model_name)
